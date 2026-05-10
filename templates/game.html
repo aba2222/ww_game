@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h2>狼人杀聊天</h2>
+
+<input id="msg" type="text" placeholder="输入聊天消息">
+<button onclick="sendMessage()">发送</button>
+
+<br><br>
+<input id="choosePlayer" type="number" placeholder="选择玩家编号">
+<button onclick="choosePlayer()">选择玩家</button>
+
+<ul id="chat"></ul>
+
+<script>
+let playerName = prompt("Enter your name");
+let ws = new WebSocket(`ws://localhost:8000/ws/${playerName}`);
+
+ws.onmessage = function(event) {
+    let data = JSON.parse(event.data);
+    let li = document.createElement("li");
+    li.textContent = `${data.player}: ${data.msg}`;
+    document.getElementById("chat").appendChild(li);
+};
+
+function sendMessage() {
+    let input = document.getElementById("msg");
+    if (input.value.trim() === "") return;
+    ws.send(JSON.stringify({"type":"chat","msg":input.value}));
+    input.value = "";
+}
+
+function choosePlayer() {
+    let input = document.getElementById("choosePlayer");
+    let playerNum = parseInt(input.value);
+    if (isNaN(playerNum)) {
+        alert("请输入有效的玩家编号！");
+        return;
+    }
+    ws.send(JSON.stringify({"type":"choose","msg":playerNum}));
+    input.value = "";
+}
+</script>
+</body>
+</html>
