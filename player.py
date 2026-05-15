@@ -15,7 +15,8 @@ class ConnectionManager:
         self.active_connections.remove(websocket)
 
     async def send_personal_message(self, message: str, id: int):
-        await self.active_connections[id].send_text(message)
+        if id < len(self.active_connections) and self.active_connections[id] is not None:
+            await self.active_connections[id].send_text(message)
 
     async def broadcast(self, message: str):
         for connection in self.active_connections:

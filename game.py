@@ -1,3 +1,5 @@
+import logging
+
 from state import GameState
 import stage
 
@@ -8,11 +10,12 @@ order = [
 ]
 
 async def game_main(state):
+    logging.info("game started")
     index = 0
     while 1:
         if await order[index].result(state):
             break
         index += 1
-        if index >= order.count():
+        if index >= len(order):
             index = 0
-    print("game ended")
+    logging.info("game ended")

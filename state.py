@@ -1,4 +1,6 @@
+import asyncio
 import json
+import logging
 
 from constants import Tag
 from player import manager
@@ -7,13 +9,15 @@ class GameState:
     def __init__(self, players):
         self.__turn = 1
         self.__players = players
-        self.choose = None
+        self.vote = [-1] * len(players)
+        self.voted_player = 0
+        self.pl_count = len(players)
     
     def get_turn(self):
         return self.__turn
     
     def add_turn(self):
-        self.turn += 1
+        self.__turn += 1
     
     def kill(self, id):
         self.__players[id].die()
@@ -22,27 +26,44 @@ class GameState:
         return self.__players[id].get_tags();
 
     def check(self):
-        for player in self.__players:
-            if Tag.GOODPERSON in player.get_tags():
+        condition = 0
+        for i in range(self.pl_count):
+            if Tag.GOODPERSON in self.get_player_tags(i):
+                condition = 1
                 break
-            print("Werewolves won the game!")
+        if condition == 0:
+            logging.info("Werewolves won the game!")
             return True
         
-        for player in self.__players:
-            if Tag.WEREWOLF in player.get_tags():
+        for i in range(self.pl_count):
+            if Tag.WEREWOLF in self.get_player_tags(i):
+                condition = 1
                 break
-            print("Good won the game!")
+        if condition == 0:
+            logging.info("Good won the game!")
             return True
+        
+        return False
     
     async def get_new_message(self, player_name : str, data : str):
         msg = json.loads(data)
         if msg["type"] == "chat":
+            logging.info(f"{player_name}: {msg['msg']}")
             msg["player"] = player_name
             await manager.broadcast(json.dumps(msg))
-        elif msg["type"] == "choose":
-            self.choose = msg["msg"]
-    
-    async def send_message(self, text, tag):
-        for player in self.__players:
-            if tag in player.get_tags():
-                manager.send_personal_message(json.dumps({"type" : "chat", "player" : "System", "msg" : text}), player.id)
+        elif msg["type"] == "vote":
+            logging.info(f"{player_name} voted {msg['target']}")
+            self.vote[int(msg["player"])] = msg["target"]
+            self.voted_player += 1
+
+    async def send_message(self, text, tags):
+        tasks = []
+        for i in range(self.pl_count):
+            player_tags = self.get_player_tags(i)
+            if not all(tag in player_tags for tag in tags):
+                continue
+            msg = json.dumps({"type": "chat", "player": "System", "msg": text})
+            logging.debug(f"Sending message to {self.__players[i].id}: {text}")
+            tasks.append(manager.send_personal_message(msg, self.__players[i].id))
+        if tasks:
+            await asyncio.gather(*tasks)

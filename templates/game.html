@@ -7,13 +7,14 @@
 <button onclick="sendMessage()">发送</button>
 
 <br><br>
-<input id="choosePlayer" type="number" placeholder="选择玩家编号">
-<button onclick="choosePlayer()">选择玩家</button>
+<input id="votePlayer" type="number" placeholder="选择投票玩家编号">
+<button onclick="votePlayer()">投票</button>
 
 <ul id="chat"></ul>
 
 <script>
 let playerName = prompt("Enter your name");
+let playerId = prompt("Enter your ID");
 let ws = new WebSocket(`ws://localhost:8000/ws/${playerName}`);
 
 ws.onmessage = function(event) {
@@ -30,14 +31,14 @@ function sendMessage() {
     input.value = "";
 }
 
-function choosePlayer() {
-    let input = document.getElementById("choosePlayer");
+function votePlayer() {
+    let input = document.getElementById("votePlayer");
     let playerNum = parseInt(input.value);
     if (isNaN(playerNum)) {
         alert("请输入有效的玩家编号！");
         return;
     }
-    ws.send(JSON.stringify({"type":"choose","msg":playerNum}));
+    ws.send(JSON.stringify({"type":"vote","player":playerId,"target":playerNum}));
     input.value = "";
 }
 </script>

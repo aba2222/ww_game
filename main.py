@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import json
@@ -8,15 +9,24 @@ from game import game_main
 from player import Player, manager
 from state import GameState
 
-app = FastAPI()
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 players = [Player(0, "Alice", [Tag.WEREWOLF, Tag.ALIVE]),
            Player(1, "Bob", [Tag.WEREWOLF, Tag.ALIVE]),
            Player(2, "Test", [Tag.SEER, Tag.GOODPERSON, Tag.ALIVE])]
 
-
 state = GameState(players)
-asyncio.create_task(game_main(state))
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    asyncio.create_task(game_main(state))
+    yield
+    # Shutdown
+    pass
+
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 async def game():
