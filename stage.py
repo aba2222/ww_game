@@ -17,7 +17,9 @@ class StageBase:
         while state.voted_player != voter_number:
             logging.debug(f"Waiting for votes... {state.voted_player}/{voter_number}")
             await asyncio.sleep(0.1)
-        vote_count = Counter(state.vote)
+            
+        valid_votes = [vote for vote in state.vote if vote != -1]
+        vote_count = Counter(valid_votes)
         max_votes = max(vote_count.values())
         result = [player for player, count in vote_count.items() if count == max_votes]
 
@@ -48,6 +50,10 @@ class WereWolfStage(StageBase):
 
 class SeerStage(StageBase):
     @override
+    def who_can_talk():
+        return [Tag.SEER, Tag.ALIVE]
+
+    @override
     async def result(state):
         await state.send_message("Whom do you want to predict?", SeerStage.who_can_talk())
         try:
@@ -58,8 +64,7 @@ class SeerStage(StageBase):
                 else:
                     await state.send_message("OK his role is werewolf", SeerStage.who_can_talk())
         except TimeoutError:
-            await state.send_message("You didn't kill anyone", WereWolfStage.who_can_talk())
-        
+            await state.send_message("You didn't predict anyone", SeerStage.who_can_talk())
 
 class DayStage(StageBase):
     @override
