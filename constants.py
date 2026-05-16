@@ -7,3 +7,7 @@ class Tag(Enum):
 
     ALIVE = 4
     GOODPERSON = 5
+    WITCH = 6
+    GOD = 7
+    HUNTER = 8
+    GUARD = 9
