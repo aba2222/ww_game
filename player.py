@@ -41,10 +41,11 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 class Player:
-    def __init__(self, id, identity, tags):
+    def __init__(self, id, identity, tags, token):
         self.id = id
         self.__identity = identity
         self.__tags = tags
+        self.token = token
     
     def die(self):
         if Tag.ALIVE in self.__tags:
