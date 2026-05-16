@@ -21,8 +21,9 @@ class GameState:
             "wolf_kill": -1,
             "witch_save": -1,
             "witch_kill": -1,
-            # 未来可以扩展 "guard_protect": -1
         }
+        self.players_with_testament = [] # 记录有遗言权的死者ID
+        self.current_speaker = -1 # 当前发言者ID，-1表示自由发言或非发言阶段
 
     def reset_night_actions(self):
         """重置夜晚行动记录"""
@@ -144,10 +145,18 @@ class GameState:
 
         player_tags = self.get_player_tags(player_id)
         if Tag.ALIVE not in player_tags:
-            logging.info(f"Dead player {player_id} attempted to send a message")
-            return
+            # 检查是否有遗言权
+            if player_id not in self.players_with_testament:
+                logging.info(f"Dead player {player_id} attempted to send a message without testament rights")
+                return
 
         if msg["type"] == "chat":
+            # 权限检查：如果是结构化发言阶段，只有当前发言者能说话
+            if self.current_speaker != -1 and player_id != self.current_speaker:
+                logging.info(f"Player {player_id} attempted to speak out of turn (Current: {self.current_speaker})")
+                # 可选：给玩家发送私信提示“未轮到你发言”
+                return
+
             logging.info(f"{player_id}: {msg['msg']}")
             msg["player"] = player_id
             formatted_msg = json.dumps(msg)

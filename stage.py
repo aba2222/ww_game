@@ -175,10 +175,32 @@ class DayStage(StageBase):
     async def result(state):
         state.current_stage = DayStage
         
-        # 1. 宣布夜晚结果
-        if state.last_night_killed:
-            deaths = ", ".join(map(str, state.last_night_killed))
+        # 1. 结算并宣布夜晚结果
+        killed_ids = state.last_night_killed
+        if killed_ids:
+            deaths = ", ".join(map(str, killed_ids))
             await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"昨晚，玩家 {deaths} 牺牲了。"}))
+            
+            # 判定遗言权 (第一晚死亡的有遗言；后续夜晚死亡的没有；女巫毒死的一律没有)
+            testament_ids = []
+            for pid in killed_ids:
+                # 只有被狼人杀(wolf_kill)且是第一晚(turn=1)才有遗言，或者是非毒杀的其他原因(暂未涉及)
+                # 毒杀判断：
+                if pid == state.night_actions["witch_kill"]:
+                    continue # 毒杀无遗言
+                if state.get_turn() == 1:
+                    testament_ids.append(pid)
+            
+            if testament_ids:
+                await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "请死亡玩家发表遗言。"}))
+                state.players_with_testament = testament_ids
+                for pid in testament_ids:
+                    state.current_speaker = pid
+                    await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"正在等待玩家 {pid} 发表遗言..."}))
+                    await asyncio.sleep(30) # 给 30 秒遗言时间 (实际应由前端确认或超时)
+                state.players_with_testament = []
+                state.current_speaker = -1
+
             state.last_night_killed = []
         else:
             await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "昨晚是一个平安夜，没有人死亡。"}))
@@ -190,8 +212,17 @@ class DayStage(StageBase):
             await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"游戏结束！{winner} 获胜！"}))
             return 1
 
-        # 3. 白天讨论与处决投票
-        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "白天开始。请大家讨论并投票处决一名嫌疑人。"}))
+        # 3. 结构化讨论环节
+        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "进入白天讨论环节，请按顺序发言。"}))
+        alive_players = [i for i in range(state.pl_count) if Tag.ALIVE in state.get_player_tags(i)]
+        for pid in alive_players:
+            state.current_speaker = pid
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"现在由玩家 {pid} 发言。"}))
+            await asyncio.sleep(60) # 每人 60 秒发言时间
+        state.current_speaker = -1
+        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "讨论结束，开始处决投票。"}))
+
+        # 4. 处决投票
         try:
             voter_number = state.count_players_with_tags(DayStage.who_can_talk())
             vote_result = await asyncio.wait_for(DayStage.wait_vote(state, voter_number), timeout=300)
@@ -201,7 +232,12 @@ class DayStage(StageBase):
                 pk_players = ", ".join(map(str, vote_result))
                 await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"出现平票！玩家 {pk_players} 进入 PK 环节，请进行 PK 发言。"}))
                 
-                # PK 再次投票
+                for pid in vote_result:
+                    state.current_speaker = pid
+                    await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"现在由 PK 玩家 {pid} 进行对决发言。"}))
+                    await asyncio.sleep(45)
+                state.current_speaker = -1
+
                 await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "PK 发言结束，请再次投票（只能在 PK 玩家中选择）。"}))
                 vote_result = await asyncio.wait_for(DayStage.wait_vote(state, voter_number, candidate_list=vote_result), timeout=120)
                 
@@ -212,13 +248,22 @@ class DayStage(StageBase):
             if vote_result != -1:
                 await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"玩家 {vote_result} 被村民投票处决了。"}))
                 state.kill(vote_result)
+                
+                # 白天被处决的玩家遗言判定
+                if state.get_turn() == 1:
+                    await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "请被处决玩家发表遗言。"}))
+                    state.players_with_testament = [vote_result]
+                    state.current_speaker = vote_result
+                    await asyncio.sleep(30)
+                    state.players_with_testament = []
+                    state.current_speaker = -1
             else:
-                if not isinstance(vote_result, list): # 已经处理过 list 情况
+                if not isinstance(vote_result, list):
                     await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "无人被处决。"}))
         except TimeoutError:
             await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "投票超时，今天无人被处决。"}))
 
-        # 4. 处决后胜负判定
+        # 5. 处决后胜负判定
         check_res = state.check()
         if check_res != 0:
             winner = "好人阵营" if check_res == 1 else "狼人阵营"
