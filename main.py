@@ -17,6 +17,7 @@ players = [Player(0, "Alice", [Tag.WEREWOLF, Tag.ALIVE]),
            Player(2, "Test", [Tag.SEER, Tag.GOODPERSON, Tag.ALIVE])]
 
 state = GameState(players)
+manager.set_player_count(len(players))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

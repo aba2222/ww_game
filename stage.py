@@ -1,7 +1,8 @@
 import asyncio
 import logging
-from typing import Counter, override
-from player import Tag
+import json
+from typing import Counter
+from player import Tag, manager
 
 class StageBase:
     def who_can_talk():
@@ -19,6 +20,11 @@ class StageBase:
             await asyncio.sleep(0.1)
             
         valid_votes = [vote for vote in state.vote if vote != -1]
+        if not valid_votes:
+            state.vote = [-1] * len(state.vote)
+            state.voted_player = 0
+            return -1
+
         vote_count = Counter(valid_votes)
         max_votes = max(vote_count.values())
         result = [player for player, count in vote_count.items() if count == max_votes]
@@ -32,12 +38,11 @@ class StageBase:
         return result[0]
 
 class WereWolfStage(StageBase):
-    @override
     def who_can_talk():
         return [Tag.WEREWOLF, Tag.ALIVE]
     
-    @override
     async def result(state):
+        state.current_stage = WereWolfStage
         await state.send_message("Whom do you want to kill?", WereWolfStage.who_can_talk())
         try:
             voter_number = state.count_players_with_tags(WereWolfStage.who_can_talk())
@@ -50,12 +55,11 @@ class WereWolfStage(StageBase):
         return 0
 
 class SeerStage(StageBase):
-    @override
     def who_can_talk():
         return [Tag.SEER, Tag.ALIVE]
 
-    @override
     async def result(state):
+        state.current_stage = SeerStage
         await state.send_message("Whom do you want to predict?", SeerStage.who_can_talk())
         try:
             voter_number = state.count_players_with_tags(SeerStage.who_can_talk())
@@ -67,15 +71,18 @@ class SeerStage(StageBase):
                     await state.send_message("OK his role is werewolf", SeerStage.who_can_talk())
         except TimeoutError:
             await state.send_message("You didn't predict anyone", SeerStage.who_can_talk())
+        return 0
 
 class DayStage(StageBase):
-    @override
     def who_can_talk():
         return [Tag.ALIVE]
     
-    @override
     async def result(state):
-        if state.check():
+        state.current_stage = DayStage
+        check_res = state.check()
+        if check_res != 0:
+            winner = "Good People" if check_res == 1 else "Werewolves"
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"Game Over! {winner} won!"}))
             return 1
         #number = int(input("Whom do you want to vote?"))
         await state.send_message("OK", DayStage.who_can_talk())
