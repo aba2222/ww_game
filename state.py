@@ -26,23 +26,23 @@ class GameState:
         return self.__players[id].get_tags();
 
     def check(self):
-        condition = 0
+        wolves_alive = False
+        good_alive = False
         for i in range(self.pl_count):
-            if Tag.GOODPERSON in self.get_player_tags(i):
-                condition = 1
-                break
-        if condition == 0:
+            tags = self.get_player_tags(i)
+            if Tag.ALIVE not in tags:
+                continue
+            if Tag.WEREWOLF in tags:
+                wolves_alive = True
+            elif Tag.GOODPERSON in tags:
+                good_alive = True
+        
+        if not good_alive:
             logging.info("Werewolves won the game!")
             return True
-        
-        for i in range(self.pl_count):
-            if Tag.WEREWOLF in self.get_player_tags(i):
-                condition = 1
-                break
-        if condition == 0:
-            logging.info("Good won the game!")
+        if not wolves_alive:
+            logging.info("Good people won the game!")
             return True
-        
         return False
     
     async def get_new_message(self, player_id : int, data : str):
