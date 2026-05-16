@@ -97,7 +97,8 @@ class GameState:
             players_info.append({
                 "id": i,
                 "alive": Tag.ALIVE in self.get_player_tags(i),
-                "sheriff": i == self.sheriff_id
+                "sheriff": i == self.sheriff_id,
+                "tags": [tag.name for tag in self.get_player_tags(i)] if i == player_id else [] # 只发自己的身份标签
             })
         
         return {
@@ -107,8 +108,19 @@ class GameState:
             "turn": self.__turn,
             "players": players_info,
             "history": self.message_history[-10:],
-            "detonated_wolf": self.detonated_wolf
+            "detonated_wolf": self.detonated_wolf,
+            "current_speaker": self.current_speaker
         }
+    
+    async def start_stage(self, stage_name, duration, tags=None):
+        """通知前端一个新阶段开始，包含倒计时信息"""
+        msg = {
+            "type": "stage_start",
+            "stage": stage_name,
+            "duration": duration,
+            "allowed_tags": [tag.name for tag in tags] if tags else []
+        }
+        await manager.broadcast(json.dumps(msg))
     
     def get_turn(self):
         return self.__turn
