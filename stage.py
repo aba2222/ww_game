@@ -63,56 +63,74 @@ class WitchStage(StageBase):
 
     async def result(state):
         state.current_stage = WitchStage
-        voter_number = state.count_players_with_tags(WitchStage.who_can_talk())
+        voters = [i for i in range(state.pl_count) if all(tag in state.get_player_tags(i) for tag in WitchStage.who_can_talk())]
+        voter_number = len(voters)
+        
         if voter_number == 0:
-            await asyncio.sleep(5) # 即使没有女巫也增加延迟，防止信息泄露
+            await asyncio.sleep(10) # 即使没有女巫也增加延迟，防止信息泄露
             return 0
         
+        witch_id = voters[0] # 假设场上只有一个活着的女巫
+        potion_used_tonight = False
+        
         # 1. 救人环节
+        # 规则：解药已用则法官不再告知刀口。且女巫不能自救。
         if not state.witch_save_used:
             killed = state.last_night_killed
             if killed:
-                target = killed[0] # 目前逻辑每晚只杀一人
-                await state.send_message(f"今晚被杀的是 {target} 号玩家。要使用灵药吗？(发送 {target} 救人，发送 -2 跳过)", WitchStage.who_can_talk())
-                try:
-                    vote_result = await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=60)
-                    if vote_result == target:
-                        state.revive(target)
-                        state.last_night_killed.remove(target)
-                        state.witch_save_used = True
-                        await state.send_message(f"你救活了 {target} 号玩家", WitchStage.who_can_talk())
-                    else:
-                        await state.send_message("你选择不使用灵药", WitchStage.who_can_talk())
-                except TimeoutError:
-                    await state.send_message("操作超时", WitchStage.who_can_talk())
+                target = killed[0]
+                if target == witch_id:
+                    await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "今晚你中刀了，但你不能自救。"}), witch_id)
+                    await asyncio.sleep(5) # 给一点思考时间
+                else:
+                    await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": f"今晚被杀的是 {target} 号玩家。要使用灵药吗？(发送 {target} 救人，发送 -2 跳过)"}), witch_id)
+                    try:
+                        # 仅等待该女巫的决定
+                        vote_result = await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=30)
+                        if vote_result == target:
+                            state.revive(target)
+                            state.last_night_killed.remove(target)
+                            state.witch_save_used = True
+                            potion_used_tonight = True
+                            await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": f"你救活了 {target} 号玩家"}), witch_id)
+                        else:
+                            await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "你选择不使用灵药"}), witch_id)
+                    except TimeoutError:
+                        await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "操作超时"}), witch_id)
             else:
-                await state.send_message("今晚无人被杀。要使用灵药吗？(发送 -2 跳过)", WitchStage.who_can_talk())
-                # 即使无人被杀也给时间决定
+                # 狼人空刀
+                await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "今晚无人被杀。要使用灵药吗？(发送 -2 跳过)"}), witch_id)
                 try:
                     await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=10)
                 except TimeoutError:
                     pass
         else:
-            await state.send_message("你的灵药已经用过了", WitchStage.who_can_talk())
-            await asyncio.sleep(3)
+            # 解药已用，不再告知刀口
+            await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "你已没有灵药，法官不再告知你今晚的伤亡情况。"}), witch_id)
+            await asyncio.sleep(5)
 
         # 2. 毒人环节
-        if not state.witch_kill_used:
-            await state.send_message("要使用毒药吗？(发送玩家 ID 毒杀，发送 -2 跳过)", WitchStage.who_can_talk())
-            try:
-                vote_result = await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=60)
-                if vote_result >= 0:
-                    state.kill(vote_result)
-                    state.last_night_killed.append(vote_result)
-                    state.witch_kill_used = True
-                    await state.send_message(f"你毒杀了 {vote_result} 号玩家", WitchStage.who_can_talk())
-                else:
-                    await state.send_message("你选择不使用毒药", WitchStage.who_can_talk())
-            except TimeoutError:
-                await state.send_message("操作超时", WitchStage.who_can_talk())
+        # 规则：同一晚只能使用一瓶药。如果今晚已经救了人，则不能毒人。
+        if not potion_used_tonight:
+            if not state.witch_kill_used:
+                await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "要使用毒药吗？(发送玩家 ID 毒杀，发送 -2 跳过)"}), witch_id)
+                try:
+                    vote_result = await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=30)
+                    if vote_result >= 0 and vote_result < state.pl_count:
+                        state.kill(vote_result)
+                        state.last_night_killed.append(vote_result)
+                        state.witch_kill_used = True
+                        await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": f"你毒杀了 {vote_result} 号玩家"}), witch_id)
+                    else:
+                        await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "你选择不使用毒药"}), witch_id)
+                except TimeoutError:
+                    await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "操作超时"}), witch_id)
+            else:
+                await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "你的毒药已经用过了"}), witch_id)
+                await asyncio.sleep(5)
         else:
-            await state.send_message("你的毒药已经用过了", WitchStage.who_can_talk())
-            await asyncio.sleep(3)
+            await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "同一晚只能使用一瓶药水，你今晚已无法使用毒药。"}), witch_id)
+            await asyncio.sleep(5)
             
         return 0
 
