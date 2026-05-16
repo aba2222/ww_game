@@ -36,4 +36,4 @@ class Player:
             self.__tags.remove(Tag.ALIVE)
     
     def get_tags(self):
-        return self.__tags
+        return list(self.__tags)
