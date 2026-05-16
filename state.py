@@ -25,6 +25,15 @@ class GameState:
     def get_player_tags(self, id):
         return self.__players[id].get_tags();
 
+    def count_players_with_tags(self, tags):
+        """计算同时拥有所有给定标签的玩家数量"""
+        count = 0
+        for i in range(self.pl_count):
+            player_tags = self.get_player_tags(i)
+            if all(tag in player_tags for tag in tags):
+                count += 1
+        return count
+
     def check(self):
         wolves_alive = False
         good_alive = False

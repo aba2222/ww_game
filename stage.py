@@ -40,7 +40,8 @@ class WereWolfStage(StageBase):
     async def result(state):
         await state.send_message("Whom do you want to kill?", WereWolfStage.who_can_talk())
         try:
-            vote_result = await asyncio.wait_for(WereWolfStage.wait_vote(state, 2), timeout=180) #TODO: change 2 to number of werewolves
+            voter_number = state.count_players_with_tags(WereWolfStage.who_can_talk())
+            vote_result = await asyncio.wait_for(WereWolfStage.wait_vote(state, voter_number), timeout=180)
             await state.send_message(f"You have killed {vote_result}", WereWolfStage.who_can_talk())
             if vote_result != -1:
                 state.kill(vote_result)
@@ -57,7 +58,8 @@ class SeerStage(StageBase):
     async def result(state):
         await state.send_message("Whom do you want to predict?", SeerStage.who_can_talk())
         try:
-            vote_result = await asyncio.wait_for(SeerStage.wait_vote(state, 1), timeout=180) #TODO: change 1 to number of seers
+            voter_number = state.count_players_with_tags(SeerStage.who_can_talk())
+            vote_result = await asyncio.wait_for(SeerStage.wait_vote(state, voter_number), timeout=180)
             if vote_result != -1:
                 if Tag.GOODPERSON in state.get_player_tags(vote_result):
                     await state.send_message("OK his role is good", SeerStage.who_can_talk())
