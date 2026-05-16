@@ -14,6 +14,26 @@ class GameState:
         self.pl_count = len(players)
         self.current_stage = None
         self.last_night_killed = []
+        self.message_history = []
+
+    def get_snapshot(self, player_id):
+        """获取当前游戏快照用于断线重连同步"""
+        players_info = []
+        for i in range(self.pl_count):
+            players_info.append({
+                "id": i,
+                "alive": Tag.ALIVE in self.get_player_tags(i),
+                # 不在同步中发送他人身份，保护隐私
+            })
+        
+        return {
+            "type": "sync",
+            "player_id": player_id,
+            "current_stage": self.current_stage.__name__ if self.current_stage else "Waiting",
+            "turn": self.__turn,
+            "players": players_info,
+            "history": self.message_history[-10:] # 发送最近10条历史记录
+        }
     
     def get_turn(self):
         return self.__turn
@@ -72,7 +92,9 @@ class GameState:
         if msg["type"] == "chat":
             logging.info(f"{player_id}: {msg['msg']}")
             msg["player"] = player_id
-            await manager.broadcast(json.dumps(msg))
+            formatted_msg = json.dumps(msg)
+            self.message_history.append(msg)
+            await manager.broadcast(formatted_msg)
         elif msg["type"] == "vote":
             if self.current_stage is None:
                 logging.info(f"Player {player_id} attempted to vote when no stage is active")
@@ -96,7 +118,13 @@ class GameState:
             player_tags = self.get_player_tags(i)
             if not all(tag in player_tags for tag in tags):
                 continue
-            msg = json.dumps({"type": "chat", "player": "System", "msg": text})
+            msg_obj = {"type": "chat", "player": "System", "msg": text}
+            msg = json.dumps(msg_obj)
+            
+            # 系统消息也存入历史（可选，为了让重连者看到最新的系统提示）
+            if i == 0: # 避免重复存入
+                self.message_history.append(msg_obj)
+                
             logging.debug(f"Sending message to {self.__players[i].id}: {text}")
             tasks.append(manager.send_personal_message(msg, self.__players[i].id))
         if tasks:

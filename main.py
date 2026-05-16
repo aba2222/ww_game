@@ -43,6 +43,11 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int, token: str = 
         return
 
     await manager.connect(player_id, websocket)
+    
+    # 连接成功后立即发送状态同步快照
+    snapshot = state.get_snapshot(player_id)
+    await manager.send_personal_message(json.dumps(snapshot), player_id)
+
     try:
         while True:
             await state.get_new_message(player_id, await websocket.receive_text())
