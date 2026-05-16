@@ -4,6 +4,7 @@ import stage
 
 order = [
     stage.WereWolfStage,
+    stage.WitchStage,
     stage.SeerStage,
     stage.DayStage,
 ]
