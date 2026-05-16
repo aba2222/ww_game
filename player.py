@@ -51,5 +51,9 @@ class Player:
         if Tag.ALIVE in self.__tags:
             self.__tags.remove(Tag.ALIVE)
     
+    def revive(self):
+        if Tag.ALIVE not in self.__tags:
+            self.__tags.append(Tag.ALIVE)
+    
     def get_tags(self):
         return list(self.__tags)

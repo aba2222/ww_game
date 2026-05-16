@@ -57,6 +57,65 @@ class WereWolfStage(StageBase):
             await state.send_message("You didn't kill anyone (timeout)", WereWolfStage.who_can_talk())
         return 0
 
+class WitchStage(StageBase):
+    def who_can_talk():
+        return [Tag.WITCH, Tag.ALIVE]
+
+    async def result(state):
+        state.current_stage = WitchStage
+        voter_number = state.count_players_with_tags(WitchStage.who_can_talk())
+        if voter_number == 0:
+            await asyncio.sleep(5) # 即使没有女巫也增加延迟，防止信息泄露
+            return 0
+        
+        # 1. 救人环节
+        if not state.witch_save_used:
+            killed = state.last_night_killed
+            if killed:
+                target = killed[0] # 目前逻辑每晚只杀一人
+                await state.send_message(f"今晚被杀的是 {target} 号玩家。要使用灵药吗？(发送 {target} 救人，发送 -2 跳过)", WitchStage.who_can_talk())
+                try:
+                    vote_result = await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=60)
+                    if vote_result == target:
+                        state.revive(target)
+                        state.last_night_killed.remove(target)
+                        state.witch_save_used = True
+                        await state.send_message(f"你救活了 {target} 号玩家", WitchStage.who_can_talk())
+                    else:
+                        await state.send_message("你选择不使用灵药", WitchStage.who_can_talk())
+                except TimeoutError:
+                    await state.send_message("操作超时", WitchStage.who_can_talk())
+            else:
+                await state.send_message("今晚无人被杀。要使用灵药吗？(发送 -2 跳过)", WitchStage.who_can_talk())
+                # 即使无人被杀也给时间决定
+                try:
+                    await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=10)
+                except TimeoutError:
+                    pass
+        else:
+            await state.send_message("你的灵药已经用过了", WitchStage.who_can_talk())
+            await asyncio.sleep(3)
+
+        # 2. 毒人环节
+        if not state.witch_kill_used:
+            await state.send_message("要使用毒药吗？(发送玩家 ID 毒杀，发送 -2 跳过)", WitchStage.who_can_talk())
+            try:
+                vote_result = await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=60)
+                if vote_result >= 0:
+                    state.kill(vote_result)
+                    state.last_night_killed.append(vote_result)
+                    state.witch_kill_used = True
+                    await state.send_message(f"你毒杀了 {vote_result} 号玩家", WitchStage.who_can_talk())
+                else:
+                    await state.send_message("你选择不使用毒药", WitchStage.who_can_talk())
+            except TimeoutError:
+                await state.send_message("操作超时", WitchStage.who_can_talk())
+        else:
+            await state.send_message("你的毒药已经用过了", WitchStage.who_can_talk())
+            await asyncio.sleep(3)
+            
+        return 0
+
 class SeerStage(StageBase):
     def who_can_talk():
         return [Tag.SEER, Tag.ALIVE]

@@ -15,6 +15,8 @@ class GameState:
         self.current_stage = None
         self.last_night_killed = []
         self.message_history = []
+        self.witch_save_used = False
+        self.witch_kill_used = False
 
     def get_snapshot(self, player_id):
         """获取当前游戏快照用于断线重连同步"""
@@ -43,6 +45,9 @@ class GameState:
     
     def kill(self, id):
         self.__players[id].die()
+    
+    def revive(self, id):
+        self.__players[id].revive()
 
     def get_player_tags(self, id):
         return self.__players[id].get_tags();
