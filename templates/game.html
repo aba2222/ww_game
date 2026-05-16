@@ -37,7 +37,7 @@ function votePlayer() {
         alert("请输入有效的玩家编号！");
         return;
     }
-    ws.send(JSON.stringify({"type":"vote","player":playerId,"target":playerNum}));
+    ws.send(JSON.stringify({"type":"vote","target":playerNum}));
     input.value = "";
 }
 </script>

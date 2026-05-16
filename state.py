@@ -53,7 +53,7 @@ class GameState:
             await manager.broadcast(json.dumps(msg))
         elif msg["type"] == "vote":
             logging.info(f"{player_id} voted {msg['target']}")
-            self.vote[int(msg["player"])] = msg["target"]
+            self.vote[player_id] = msg["target"]
             self.voted_player += 1
 
     async def send_message(self, text, tags):

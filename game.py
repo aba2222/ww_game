@@ -1,6 +1,5 @@
 import logging
 
-from state import GameState
 import stage
 
 order = [
