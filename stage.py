@@ -14,12 +14,21 @@ class StageBase:
     async def result(state):
         return 0
     
-    async def wait_vote(state, voter_number):
+    async def wait_vote(state, voter_number, candidate_list=None):
+        """
+        等待投票并结算结果。
+        :param candidate_list: 如果指定，则只能投给列表中的人（用于 PK 环节）
+        """
         while state.voted_player != voter_number:
             logging.debug(f"Waiting for votes... {state.voted_player}/{voter_number}")
             await asyncio.sleep(0.1)
             
         valid_votes = [vote for vote in state.vote if vote != -1]
+        
+        # 如果是 PK 环节，过滤掉不在候选名单中的投票
+        if candidate_list:
+            valid_votes = [vote for vote in valid_votes if vote in candidate_list]
+
         if not valid_votes:
             state.vote = [-1] * len(state.vote)
             state.voted_player = 0
@@ -27,15 +36,16 @@ class StageBase:
 
         vote_count = Counter(valid_votes)
         max_votes = max(vote_count.values())
-        result = [player for player, count in vote_count.items() if count == max_votes]
+        results = [player for player, count in vote_count.items() if count == max_votes]
 
         state.vote = [-1] * len(state.vote)
         state.voted_player = 0
 
-        if len(result) > 1:
-            return -1
+        # 如果平票，返回所有最高票玩家列表
+        if len(results) > 1:
+            return results
 
-        return result[0]
+        return results[0]
 
 class WereWolfStage(StageBase):
     def who_can_talk():
@@ -160,40 +170,54 @@ class DayStage(StageBase):
     async def result(state):
         state.current_stage = DayStage
         
-        # 1. Announce night results
+        # 1. 宣布夜晚结果
         if state.last_night_killed:
             deaths = ", ".join(map(str, state.last_night_killed))
-            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"Last night, players {deaths} were killed."}))
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"昨晚，玩家 {deaths} 牺牲了。"}))
             state.last_night_killed = []
         else:
-            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "It was a peaceful night, no one died."}))
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "昨晚是一个平安夜，没有人死亡。"}))
 
-        # 2. Check for game over before voting
+        # 2. 投票前胜负判定
         check_res = state.check()
         if check_res != 0:
-            winner = "Good People" if check_res == 1 else "Werewolves"
-            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"Game Over! {winner} won!"}))
+            winner = "好人阵营" if check_res == 1 else "狼人阵营"
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"游戏结束！{winner} 获胜！"}))
             return 1
 
-        # 3. Discussion and Voting for execution
-        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "It's daytime. Discuss and vote who to execute."}))
+        # 3. 白天讨论与处决投票
+        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "白天开始。请大家讨论并投票处决一名嫌疑人。"}))
         try:
             voter_number = state.count_players_with_tags(DayStage.who_can_talk())
             vote_result = await asyncio.wait_for(DayStage.wait_vote(state, voter_number), timeout=300)
             
+            # 处理平票（PK 环节）
+            if isinstance(vote_result, list):
+                pk_players = ", ".join(map(str, vote_result))
+                await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"出现平票！玩家 {pk_players} 进入 PK 环节，请进行 PK 发言。"}))
+                
+                # PK 再次投票
+                await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "PK 发言结束，请再次投票（只能在 PK 玩家中选择）。"}))
+                vote_result = await asyncio.wait_for(DayStage.wait_vote(state, voter_number, candidate_list=vote_result), timeout=120)
+                
+                if isinstance(vote_result, list):
+                    await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "再次平票，今天无人被处决（平安日）。"}))
+                    vote_result = -1
+
             if vote_result != -1:
-                await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"Player {vote_result} has been executed by the village."}))
+                await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"玩家 {vote_result} 被村民投票处决了。"}))
                 state.kill(vote_result)
             else:
-                await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "No one was executed (tie or no votes)."}))
+                if not isinstance(vote_result, list): # 已经处理过 list 情况
+                    await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "无人被处决。"}))
         except TimeoutError:
-            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "Voting timed out. No one was executed."}))
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "投票超时，今天无人被处决。"}))
 
-        # 4. Final check after execution
+        # 4. 处决后胜负判定
         check_res = state.check()
         if check_res != 0:
-            winner = "Good People" if check_res == 1 else "Werewolves"
-            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"Game Over! {winner} won!"}))
+            winner = "好人阵营" if check_res == 1 else "狼人阵营"
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"游戏结束！{winner} 获胜！"}))
             return 1
             
         state.add_turn()
