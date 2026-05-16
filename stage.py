@@ -14,37 +14,34 @@ class StageBase:
     async def result(state):
         return 0
     
-    async def wait_vote(state, voter_number, candidate_list=None):
+    async def wait_vote(state, voter_number, candidate_list=None, weighted=False):
         """
         等待投票并结算结果。
-        :param candidate_list: 如果指定，则只能投给列表中的人（用于 PK 环节）
+        :param candidate_list: 如果指定，则只能投给列表中的人
+        :param weighted: 是否计算权重（警长 1.5 票）
         """
         while state.voted_player != voter_number:
             logging.debug(f"Waiting for votes... {state.voted_player}/{voter_number}")
             await asyncio.sleep(0.1)
             
-        valid_votes = [vote for vote in state.vote if vote != -1]
-        
-        # 如果是 PK 环节，过滤掉不在候选名单中的投票
-        if candidate_list:
-            valid_votes = [vote for vote in valid_votes if vote in candidate_list]
-
-        if not valid_votes:
-            state.vote = [-1] * len(state.vote)
-            state.voted_player = 0
-            return -1
-
-        vote_count = Counter(valid_votes)
-        if not vote_count:
-            state.vote = [-1] * len(state.vote)
-            state.voted_player = 0
-            return -1
-
-        max_votes = max(vote_count.values())
-        results = [player for player, count in vote_count.items() if count == max_votes]
+        # 统计选票
+        vote_tally = Counter()
+        for i in range(state.pl_count):
+            target = state.vote[i]
+            if target != -1:
+                if candidate_list and target not in candidate_list:
+                    continue
+                weight = state.get_vote_weight(i) if weighted else 1.0
+                vote_tally[target] += weight
 
         state.vote = [-1] * len(state.vote)
         state.voted_player = 0
+
+        if not vote_tally:
+            return -1
+
+        max_votes = max(vote_tally.values())
+        results = [player for player, count in vote_tally.items() if count == max_votes]
 
         # 如果平票，返回所有最高票玩家列表
         if len(results) > 1:
@@ -70,6 +67,48 @@ async def handle_hunter_shoot(state, hunter_id):
                 await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "猎人选择了不开枪。"}))
         except TimeoutError:
             await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "操作超时，猎人没能开出这枪。"}))
+
+class SheriffElectionStage(StageBase):
+    """警长竞选阶段 (仅第一天)"""
+    async def result(state):
+        if state.get_turn() != 1:
+            return 0
+            
+        state.current_stage = SheriffElectionStage
+        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "【警长竞选】想要上警竞选警长的玩家，请在 10 秒内发送 -99 确认。"}))
+        
+        # 1. 收集参选名单 (简化版：狼人、预言家和猎人上警)
+        candidates = [0, 3, 4] 
+        
+        if not candidates:
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "无人上警，本局无警长。"}))
+            return 0
+
+        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"参选玩家为：{candidates}。进入警上发言环节。"}))
+        
+        # 2. 警上发言
+        for pid in candidates:
+            state.current_speaker = pid
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"现在由竞选玩家 {pid} 发言。"}))
+            await asyncio.sleep(45) 
+        state.current_speaker = -1
+        
+        # 3. 警下投票
+        voters = [i for i in range(state.pl_count) if i not in candidates and Tag.ALIVE in state.get_player_tags(i)]
+        if not voters:
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "所有存活玩家均已上警，无法投票，本局无警长。"}))
+            return 0
+            
+        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "发言结束，请警下玩家投票。"}))
+        vote_result = await asyncio.wait_for(StageBase.wait_vote(state, len(voters), candidate_list=candidates), timeout=120)
+        
+        if isinstance(vote_result, int) and vote_result != -1:
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"竞选结束，玩家 {vote_result} 当选警长！"}))
+            state.set_sheriff(vote_result)
+        else:
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "由于平票或无人投票，本局无警长。"}))
+            
+        return 0
 
 class GuardStage(StageBase):
     def who_can_talk():
@@ -148,6 +187,7 @@ class WitchStage(StageBase):
         potion_used_tonight = False
         
         # 1. 救人环节
+        # 规则：解药已用则法官不再告知刀口。且女巫不能自救。
         if not state.witch_save_used:
             target = state.night_actions["wolf_kill"]
             if target != -1:
@@ -259,6 +299,24 @@ class DayStage(StageBase):
             for pid in killed_ids:
                 if Tag.HUNTER in state.get_player_tags(pid) and pid != state.night_actions["witch_kill"]:
                     await handle_hunter_shoot(state, pid)
+            
+            # 如果死者是警长，移交或撕掉警徽
+            for pid in killed_ids:
+                if pid == state.sheriff_id:
+                    await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "【重要】警长牺牲了！请警长在 30 秒内移交警徽（发送目标ID）或撕掉警徽（发送 -2）。"}))
+                    try:
+                        # 临时借用 wait_vote 等待移交指令
+                        state.current_stage = DayStage 
+                        transfer_res = await asyncio.wait_for(StageBase.wait_vote(state, 1), timeout=30)
+                        if isinstance(transfer_res, int) and transfer_res >= 0 and transfer_res < state.pl_count and Tag.ALIVE in state.get_player_tags(transfer_res):
+                            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"警长将警徽移交给了玩家 {transfer_res}。"}))
+                            state.set_sheriff(transfer_res)
+                        else:
+                            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "警徽被撕掉了，本局后续无警长。"}))
+                            state.set_sheriff(-1)
+                    except TimeoutError:
+                        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "警长未及时移交，警徽被强制撕掉。"}))
+                        state.set_sheriff(-1)
 
             # 判定遗言权
             testament_ids = []
@@ -292,6 +350,14 @@ class DayStage(StageBase):
         # 3. 结构化讨论环节
         await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "进入白天讨论环节，请按顺序发言。"}))
         alive_players = [i for i in range(state.pl_count) if Tag.ALIVE in state.get_player_tags(i)]
+        
+        # 如果有警长，由警长决定顺序（这里简化为：从警长左手位开始）
+        start_index = 0
+        if state.sheriff_id != -1 and state.sheriff_id in alive_players:
+             idx = alive_players.index(state.sheriff_id)
+             # 顺时针顺序
+             alive_players = alive_players[idx+1:] + alive_players[:idx+1]
+
         for pid in alive_players:
             state.current_speaker = pid
             await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"现在由玩家 {pid} 发言。"}))
@@ -302,7 +368,8 @@ class DayStage(StageBase):
         # 4. 处决投票
         try:
             voter_number = state.count_players_with_tags(DayStage.who_can_talk())
-            vote_result = await asyncio.wait_for(DayStage.wait_vote(state, voter_number), timeout=300)
+            # 白天处决投票使用加权（警长 1.5 票）
+            vote_result = await asyncio.wait_for(DayStage.wait_vote(state, voter_number, weighted=True), timeout=300)
             
             # 处理平票（PK 环节）
             if isinstance(vote_result, list):
@@ -316,7 +383,7 @@ class DayStage(StageBase):
                 state.current_speaker = -1
 
                 await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "PK 发言结束，请再次投票（只能在 PK 玩家中选择）。"}))
-                vote_result = await asyncio.wait_for(DayStage.wait_vote(state, voter_number, candidate_list=vote_result), timeout=120)
+                vote_result = await asyncio.wait_for(DayStage.wait_vote(state, voter_number, candidate_list=vote_result, weighted=True), timeout=120)
                 
                 if isinstance(vote_result, list):
                     await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "再次平票，今天无人被处决（平安日）。"}))
@@ -329,6 +396,19 @@ class DayStage(StageBase):
                 # 处理猎人被投开枪
                 if Tag.HUNTER in state.get_player_tags(vote_result) and state.hunter_shootable:
                      await handle_hunter_shoot(state, vote_result)
+                
+                # 如果死者是警长，移交警徽
+                if vote_result == state.sheriff_id:
+                    await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "【重要】被处决的玩家是警长！请在 30 秒内移交警徽（发送目标ID）或撕掉（发送 -2）。"}))
+                    try:
+                        transfer_res = await asyncio.wait_for(StageBase.wait_vote(state, 1), timeout=30)
+                        if isinstance(transfer_res, int) and transfer_res >= 0 and Tag.ALIVE in state.get_player_tags(transfer_res):
+                            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"警长将警徽移交给了玩家 {transfer_res}。"}))
+                            state.set_sheriff(transfer_res)
+                        else:
+                            state.set_sheriff(-1)
+                    except:
+                        state.set_sheriff(-1)
 
                 # 白天被处决的玩家遗言判定
                 if state.get_turn() == 1:

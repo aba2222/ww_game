@@ -27,6 +27,15 @@ class GameState:
         self.hunter_shootable = True # 猎人是否能开枪（被毒不能开枪）
         self.players_with_testament = [] # 记录有遗言权的死者ID
         self.current_speaker = -1 # 当前发言者ID，-1表示自由发言或非发言阶段
+        self.sheriff_id = -1 # 警长ID，-1表示无警长
+
+    def set_sheriff(self, player_id):
+        """设置警长"""
+        self.sheriff_id = player_id
+
+    def get_vote_weight(self, player_id):
+        """获取玩家投票权重：警长为 1.5，其他为 1.0"""
+        return 1.5 if player_id == self.sheriff_id else 1.0
 
     def reset_night_actions(self):
         """重置夜晚行动记录"""
