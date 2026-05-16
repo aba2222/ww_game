@@ -13,9 +13,8 @@
 <ul id="chat"></ul>
 
 <script>
-let playerName = prompt("Enter your name");
 let playerId = prompt("Enter your ID");
-let ws = new WebSocket(`ws://localhost:8000/ws/${playerName}`);
+let ws = new WebSocket(`ws://localhost:8000/ws/${playerId}`);
 
 ws.onmessage = function(event) {
     let data = JSON.parse(event.data);

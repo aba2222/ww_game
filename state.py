@@ -45,14 +45,14 @@ class GameState:
         
         return False
     
-    async def get_new_message(self, player_name : str, data : str):
+    async def get_new_message(self, player_id : int, data : str):
         msg = json.loads(data)
         if msg["type"] == "chat":
-            logging.info(f"{player_name}: {msg['msg']}")
-            msg["player"] = player_name
+            logging.info(f"{player_id}: {msg['msg']}")
+            msg["player"] = player_id
             await manager.broadcast(json.dumps(msg))
         elif msg["type"] == "vote":
-            logging.info(f"{player_name} voted {msg['target']}")
+            logging.info(f"{player_id} voted {msg['target']}")
             self.vote[int(msg["player"])] = msg["target"]
             self.voted_player += 1
 

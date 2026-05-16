@@ -5,14 +5,15 @@ from fastapi import WebSocket
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: List[WebSocket] = [None] * 3 # TODO: change 3 to max number of players
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, player_id: int, websocket: WebSocket):
         await websocket.accept()
-        self.active_connections.append(websocket)
+        self.active_connections[player_id] = websocket
 
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+    def disconnect(self, player_id: int, websocket: WebSocket):
+        if self.active_connections[player_id] == websocket:
+            self.active_connections[player_id] = None
 
     async def send_personal_message(self, message: str, id: int):
         if id < len(self.active_connections) and self.active_connections[id] is not None:

@@ -32,12 +32,12 @@ app = FastAPI(lifespan=lifespan)
 async def game():
     return "TODO"
 
-@app.websocket("/ws/{player_name}")
-async def websocket_endpoint(websocket: WebSocket, player_name: str):
-    await manager.connect(websocket)
+@app.websocket("/ws/{player_id}")
+async def websocket_endpoint(websocket: WebSocket, player_id: int):
+    await manager.connect(player_id, websocket)
     try:
         while True:
-            await state.get_new_message(player_name, await websocket.receive_text())
+            await state.get_new_message(player_id, await websocket.receive_text())
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        await manager.broadcast(json.dumps({"type": "system", "msg": f"{player_name} exit the game"}))
+        manager.disconnect(player_id, websocket)
+        await manager.broadcast(json.dumps({"type": "system", "msg": f"{player_id} exit the game"}))
