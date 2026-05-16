@@ -35,6 +35,11 @@ class StageBase:
             return -1
 
         vote_count = Counter(valid_votes)
+        if not vote_count:
+            state.vote = [-1] * len(state.vote)
+            state.voted_player = 0
+            return -1
+
         max_votes = max(vote_count.values())
         results = [player for player, count in vote_count.items() if count == max_votes]
 
@@ -46,6 +51,60 @@ class StageBase:
             return results
 
         return results[0]
+
+async def handle_hunter_shoot(state, hunter_id):
+    """处理猎人开枪逻辑"""
+    if Tag.HUNTER in state.get_player_tags(hunter_id) and state.hunter_shootable:
+        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"玩家 {hunter_id} 是猎人，由于死亡，可以翻牌发动技能！"}))
+        await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"请猎人玩家 {hunter_id} 选择要开枪带走的目标号码（输入 -2 放弃）："}))
+        
+        try:
+            # 猎人是一个人开枪，所以 voter_number 是 1
+            state.current_stage = HunterStage # 临时切换状态以允许猎人操作
+            vote_result = await asyncio.wait_for(StageBase.wait_vote(state, 1), timeout=60)
+            
+            if isinstance(vote_result, int) and vote_result >= 0 and vote_result < state.pl_count:
+                await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"【砰！】猎人开枪带走了玩家 {vote_result}。"}))
+                state.kill(vote_result)
+            else:
+                await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "猎人选择了不开枪。"}))
+        except TimeoutError:
+            await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "操作超时，猎人没能开出这枪。"}))
+
+class GuardStage(StageBase):
+    def who_can_talk():
+        return [Tag.GUARD, Tag.ALIVE]
+
+    async def result(state):
+        state.current_stage = GuardStage
+        voters = [i for i in range(state.pl_count) if all(tag in state.get_player_tags(i) for tag in GuardStage.who_can_talk())]
+        voter_number = len(voters)
+        
+        if voter_number == 0:
+            await asyncio.sleep(5)
+            return 0
+            
+        guard_id = voters[0]
+        await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": f"请选择今晚要守护的目标号码（上轮守护：{state.last_guard_target}，输入 -2 空守）："}), guard_id)
+        
+        try:
+            vote_result = await asyncio.wait_for(GuardStage.wait_vote(state, voter_number), timeout=30)
+            
+            if isinstance(vote_result, int) and vote_result >= 0:
+                if vote_result == state.last_guard_target:
+                    await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "不能连续两晚守护同一人，本次操作无效。"}), guard_id)
+                else:
+                    state.night_actions["guard_protect"] = vote_result
+                    state.last_guard_target = vote_result
+                    await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": f"你今晚守护了 {vote_result} 号玩家"}), guard_id)
+            else:
+                state.last_guard_target = -1
+                await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "你今晚选择了空守"}), guard_id)
+        except TimeoutError:
+            state.last_guard_target = -1
+            await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "操作超时，你今晚选择了空守"}), guard_id)
+            
+        return 0
 
 class WereWolfStage(StageBase):
     def who_can_talk():
@@ -82,24 +141,22 @@ class WitchStage(StageBase):
         voter_number = len(voters)
         
         if voter_number == 0:
-            await asyncio.sleep(10) # 即使没有女巫也增加延迟，防止信息泄露
+            await asyncio.sleep(10)
             return 0
         
-        witch_id = voters[0] # 假设场上只有一个活着的女巫
+        witch_id = voters[0]
         potion_used_tonight = False
         
         # 1. 救人环节
-        # 规则：解药已用则法官不再告知刀口。且女巫不能自救。
         if not state.witch_save_used:
             target = state.night_actions["wolf_kill"]
             if target != -1:
                 if target == witch_id:
                     await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "今晚你中刀了，但你不能自救。"}), witch_id)
-                    await asyncio.sleep(5) # 给一点思考时间
+                    await asyncio.sleep(5)
                 else:
                     await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": f"今晚被杀的是 {target} 号玩家。要使用灵药吗？(发送 {target} 救人，发送 -2 跳过)"}), witch_id)
                     try:
-                        # 仅等待该女巫的决定
                         vote_result = await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=30)
                         if vote_result == target:
                             state.night_actions["witch_save"] = target
@@ -111,19 +168,15 @@ class WitchStage(StageBase):
                     except TimeoutError:
                         await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "操作超时"}), witch_id)
             else:
-                # 狼人空刀
                 await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "今晚无人被杀。要使用灵药吗？(发送 -2 跳过)"}), witch_id)
                 try:
                     await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=10)
-                except TimeoutError:
-                    pass
+                except TimeoutError: pass
         else:
-            # 解药已用，不再告知刀口
             await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "你已没有灵药，法官不再告知你今晚的伤亡情况。"}), witch_id)
             await asyncio.sleep(5)
 
         # 2. 毒人环节
-        # 规则：同一晚只能使用一瓶药。如果今晚已经救了人，则不能毒人。
         if not potion_used_tonight:
             if not state.witch_kill_used:
                 await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "要使用毒药吗？(发送玩家 ID 毒杀，发送 -2 跳过)"}), witch_id)
@@ -163,7 +216,28 @@ class SeerStage(StageBase):
                     await state.send_message(f"{vote_result} 号玩家的身份是：好人", SeerStage.who_can_talk())
         except TimeoutError:
             await state.send_message("查验超时，你今晚没有获得任何信息", SeerStage.who_can_talk())
+        return 0
+
+class HunterStage(StageBase):
+    """仅用于猎人夜晚状态告知或白天开枪"""
+    def who_can_talk():
+        return [Tag.HUNTER, Tag.ALIVE]
+
+    async def result(state):
+        state.current_stage = HunterStage
+        voters = [i for i in range(state.pl_count) if all(tag in state.get_player_tags(i) for tag in HunterStage.who_can_talk())]
+        if not voters:
+            await asyncio.sleep(2)
+            return 0
         
+        hunter_id = voters[0]
+        # 夜晚告知状态
+        if state.hunter_shootable:
+            await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "你的开枪状态：【正常】。若中刀或被投，你可以带走一人。"}), hunter_id)
+        else:
+            await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "你的开枪状态：【中毒】。你若死亡将无法发动技能。"}), hunter_id)
+        
+        await asyncio.sleep(3)
         # 夜晚行动结束，统一结算
         state.settle_night()
         return 0
@@ -181,11 +255,14 @@ class DayStage(StageBase):
             deaths = ", ".join(map(str, killed_ids))
             await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"昨晚，玩家 {deaths} 牺牲了。"}))
             
-            # 判定遗言权 (第一晚死亡的有遗言；后续夜晚死亡的没有；女巫毒死的一律没有)
+            # 处理猎人开枪 (如果是夜晚被杀且非毒杀)
+            for pid in killed_ids:
+                if Tag.HUNTER in state.get_player_tags(pid) and pid != state.night_actions["witch_kill"]:
+                    await handle_hunter_shoot(state, pid)
+
+            # 判定遗言权
             testament_ids = []
             for pid in killed_ids:
-                # 只有被狼人杀(wolf_kill)且是第一晚(turn=1)才有遗言，或者是非毒杀的其他原因(暂未涉及)
-                # 毒杀判断：
                 if pid == state.night_actions["witch_kill"]:
                     continue # 毒杀无遗言
                 if state.get_turn() == 1:
@@ -197,7 +274,7 @@ class DayStage(StageBase):
                 for pid in testament_ids:
                     state.current_speaker = pid
                     await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"正在等待玩家 {pid} 发表遗言..."}))
-                    await asyncio.sleep(30) # 给 30 秒遗言时间 (实际应由前端确认或超时)
+                    await asyncio.sleep(30)
                 state.players_with_testament = []
                 state.current_speaker = -1
 
@@ -218,7 +295,7 @@ class DayStage(StageBase):
         for pid in alive_players:
             state.current_speaker = pid
             await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"现在由玩家 {pid} 发言。"}))
-            await asyncio.sleep(60) # 每人 60 秒发言时间
+            await asyncio.sleep(60)
         state.current_speaker = -1
         await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "讨论结束，开始处决投票。"}))
 
@@ -249,6 +326,10 @@ class DayStage(StageBase):
                 await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"玩家 {vote_result} 被村民投票处决了。"}))
                 state.kill(vote_result)
                 
+                # 处理猎人被投开枪
+                if Tag.HUNTER in state.get_player_tags(vote_result) and state.hunter_shootable:
+                     await handle_hunter_shoot(state, vote_result)
+
                 # 白天被处决的玩家遗言判定
                 if state.get_turn() == 1:
                     await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": "请被处决玩家发表遗言。"}))

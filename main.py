@@ -12,10 +12,12 @@ from state import GameState
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
-players = [Player(0, "Wolf", [Tag.WEREWOLF, Tag.ALIVE], "token_wolf"),
-           Player(1, "Witch", [Tag.WITCH, Tag.GOD, Tag.GOODPERSON, Tag.ALIVE], "token_witch"),
-           Player(2, "Seer", [Tag.SEER, Tag.GOD, Tag.GOODPERSON, Tag.ALIVE], "token_seer"),
-           Player(3, "Villager", [Tag.VILLAGER, Tag.GOODPERSON, Tag.ALIVE], "token_villager")]
+players = [Player(0, "Wolf_1", [Tag.WEREWOLF, Tag.ALIVE], "token_w1"),
+           Player(1, "Wolf_2", [Tag.WEREWOLF, Tag.ALIVE], "token_w2"),
+           Player(2, "Witch", [Tag.WITCH, Tag.GOD, Tag.GOODPERSON, Tag.ALIVE], "token_witch"),
+           Player(3, "Seer", [Tag.SEER, Tag.GOD, Tag.GOODPERSON, Tag.ALIVE], "token_seer"),
+           Player(4, "Hunter", [Tag.HUNTER, Tag.GOD, Tag.GOODPERSON, Tag.ALIVE], "token_hunter"),
+           Player(5, "Guard", [Tag.GUARD, Tag.GOD, Tag.GOODPERSON, Tag.ALIVE], "token_guard")]
 
 state = GameState(players)
 manager.set_player_count(len(players))

@@ -21,7 +21,10 @@ class GameState:
             "wolf_kill": -1,
             "witch_save": -1,
             "witch_kill": -1,
+            "guard_protect": -1,
         }
+        self.last_guard_target = -1 # 守卫不能连续两晚守同一人
+        self.hunter_shootable = True # 猎人是否能开枪（被毒不能开枪）
         self.players_with_testament = [] # 记录有遗言权的死者ID
         self.current_speaker = -1 # 当前发言者ID，-1表示自由发言或非发言阶段
 
@@ -30,7 +33,8 @@ class GameState:
         self.night_actions = {
             "wolf_kill": -1,
             "witch_save": -1,
-            "witch_kill": -1
+            "witch_kill": -1,
+            "guard_protect": -1,
         }
 
     def settle_night(self):
@@ -40,18 +44,31 @@ class GameState:
         wolf_target = self.night_actions["wolf_kill"]
         witch_save = self.night_actions["witch_save"]
         witch_kill = self.night_actions["witch_kill"]
+        guard_protect = self.night_actions["guard_protect"]
         
-        # 1. 处理狼刀和解药
+        # 1. 处理狼刀、解药和守护
         if wolf_target != -1:
-            if wolf_target == witch_save:
-                # 被救了，不计入死亡 (未来若有守卫，在此处处理同守同救/奶穿逻辑)
+            # 同守同救 (奶穿) 逻辑：守卫守了且女巫救了，人还是会死
+            if wolf_target == guard_protect and wolf_target == witch_save:
+                logging.info(f"Player {wolf_target} was milked-through (Guard + Witch) and died.")
+                killed_this_night.add(wolf_target)
+            # 正常守护成功
+            elif wolf_target == guard_protect:
+                logging.info(f"Player {wolf_target} was protected by Guard.")
+            # 正常解药救成功
+            elif wolf_target == witch_save:
                 logging.info(f"Player {wolf_target} was saved by Witch.")
+            # 无人保护
             else:
                 killed_this_night.add(wolf_target)
         
-        # 2. 处理毒药
+        # 2. 处理毒药 (毒药无视守护)
         if witch_kill != -1:
             killed_this_night.add(witch_kill)
+            # 被毒杀的猎人不能开枪
+            if Tag.HUNTER in self.get_player_tags(witch_kill):
+                self.hunter_shootable = False
+                logging.info(f"Hunter {witch_kill} was poisoned and lost shooting ability.")
             
         # 3. 执行死亡
         self.last_night_killed = list(killed_this_night)

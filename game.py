@@ -3,9 +3,11 @@ import logging
 import stage
 
 order = [
+    stage.GuardStage,
     stage.WereWolfStage,
     stage.WitchStage,
     stage.SeerStage,
+    stage.HunterStage,
     stage.DayStage,
 ]
 
