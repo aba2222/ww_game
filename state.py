@@ -28,6 +28,9 @@ class GameState:
         self.players_with_testament = [] # 记录有遗言权的死者ID
         self.current_speaker = -1 # 当前发言者ID，-1表示自由发言或非发言阶段
         self.sheriff_id = -1 # 警长ID，-1表示无警长
+        self.detonated_wolf = -1 # 记录当前自爆的狼人ID，-1表示无自爆
+        self.candidates = [] # 警长竞选候选人名单
+        self.active_voters = [] # 当前环节需要投票的人员名单
 
     def set_sheriff(self, player_id):
         """设置警长"""
@@ -45,6 +48,7 @@ class GameState:
             "witch_kill": -1,
             "guard_protect": -1,
         }
+        self.detonated_wolf = -1 # 入夜后重置自爆状态
 
     def settle_night(self):
         """结算夜晚的所有行动，计算最终死亡名单"""
@@ -93,7 +97,7 @@ class GameState:
             players_info.append({
                 "id": i,
                 "alive": Tag.ALIVE in self.get_player_tags(i),
-                # 不在同步中发送他人身份，保护隐私
+                "sheriff": i == self.sheriff_id
             })
         
         return {
@@ -102,7 +106,8 @@ class GameState:
             "current_stage": self.current_stage.__name__ if self.current_stage else "Waiting",
             "turn": self.__turn,
             "players": players_info,
-            "history": self.message_history[-10:] # 发送最近10条历史记录
+            "history": self.message_history[-10:],
+            "detonated_wolf": self.detonated_wolf
         }
     
     def get_turn(self):
@@ -140,7 +145,7 @@ class GameState:
             if Tag.ALIVE not in tags:
                 continue
             
-            if Tag.WEREWOLF in tags:
+            if Tag.WEREWOLF in tags or Tag.WOLFKING in tags:
                 wolves_alive = True
             elif Tag.GOD in tags:
                 gods_alive = True
@@ -170,17 +175,18 @@ class GameState:
             return
 
         player_tags = self.get_player_tags(player_id)
+        
         if Tag.ALIVE not in player_tags:
-            # 检查是否有遗言权
-            if player_id not in self.players_with_testament:
-                logging.info(f"Dead player {player_id} attempted to send a message without testament rights")
+            # 检查是否有权限执行当前操作
+            stage_name = self.current_stage.__name__ if self.current_stage else ""
+            is_shooting_stage = stage_name in ["HunterStage", "WolfKingStage"]
+            if player_id not in self.players_with_testament and not is_shooting_stage:
+                logging.info(f"Dead player {player_id} attempted to send a message without permission")
                 return
 
         if msg["type"] == "chat":
-            # 权限检查：如果是结构化发言阶段，只有当前发言者能说话
             if self.current_speaker != -1 and player_id != self.current_speaker:
-                logging.info(f"Player {player_id} attempted to speak out of turn (Current: {self.current_speaker})")
-                # 可选：给玩家发送私信提示“未轮到你发言”
+                logging.info(f"Player {player_id} attempted to speak out of turn")
                 return
 
             logging.info(f"{player_id}: {msg['msg']}")
@@ -188,22 +194,51 @@ class GameState:
             formatted_msg = json.dumps(msg)
             self.message_history.append(msg)
             await manager.broadcast(formatted_msg)
+
         elif msg["type"] == "vote":
             if self.current_stage is None:
-                logging.info(f"Player {player_id} attempted to vote when no stage is active")
                 return
             
-            allowed_tags = self.current_stage.who_can_talk()
-            if not all(tag in player_tags for tag in allowed_tags):
-                logging.info(f"Player {player_id} attempted to vote without proper tags for {self.current_stage.__name__}")
+            target = msg.get("target", -1)
+            stage_name = self.current_stage.__name__
+
+            # 特殊指令：上警报名 (-99)
+            if target == -99 and stage_name == "SheriffElectionStage":
+                if player_id not in self.candidates:
+                    self.candidates.append(player_id)
+                    await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"玩家 {player_id} 已报名竞选警长。"}))
                 return
 
+            # 特殊指令：退水 (-2)
+            if target == -2 and stage_name == "SheriffElectionStage":
+                if player_id == self.current_speaker and player_id in self.candidates:
+                    self.candidates.remove(player_id)
+                    await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"玩家 {player_id} 宣布退水，退出竞选。"}))
+                return
+
+            # 普通投票逻辑（包含弃权 -2）
             if self.vote[player_id] != -1:
                 logging.info(f"{player_id} attempted to vote again")
                 return
-            logging.info(f"{player_id} voted {msg['target']}")
-            self.vote[player_id] = msg["target"]
+            
+            # 权限检查
+            allowed_tags = self.current_stage.who_can_talk()
+            if not all(tag in player_tags for tag in allowed_tags) and player_id not in self.active_voters:
+                 # 特殊处理：如果是处决投票，检查是否在 active_voters 中
+                 logging.info(f"Player {player_id} attempted to vote without proper tags/permission")
+                 return
+
+            logging.info(f"{player_id} voted {target}")
+            self.vote[player_id] = target
             self.voted_player += 1
+
+        elif msg["type"] == "detonate":
+            # 狼人自爆逻辑 (仅限活着且属于狼人阵营的玩家)
+            if (Tag.WEREWOLF in player_tags or Tag.WOLFKING in player_tags) and Tag.ALIVE in player_tags:
+                if self.current_stage.__name__ in ["DayStage", "SheriffElectionStage"]:
+                    self.detonated_wolf = player_id
+                    await manager.broadcast(json.dumps({"type": "chat", "player": "System", "msg": f"【！！！】玩家 {player_id} 翻牌自爆！当前阶段立即终止。"}))
+                    self.kill(player_id)
 
     async def send_message(self, text, tags):
         tasks = []
@@ -213,12 +248,8 @@ class GameState:
                 continue
             msg_obj = {"type": "chat", "player": "System", "msg": text}
             msg = json.dumps(msg_obj)
-            
-            # 系统消息也存入历史（可选，为了让重连者看到最新的系统提示）
-            if i == 0: # 避免重复存入
+            if i == 0:
                 self.message_history.append(msg_obj)
-                
-            logging.debug(f"Sending message to {self.__players[i].id}: {text}")
             tasks.append(manager.send_personal_message(msg, self.__players[i].id))
         if tasks:
             await asyncio.gather(*tasks)

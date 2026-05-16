@@ -11,3 +11,4 @@ class Tag(Enum):
     GOD = 7
     HUNTER = 8
     GUARD = 9
+    WOLFKING = 10

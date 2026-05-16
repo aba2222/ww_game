@@ -14,6 +14,7 @@
             --system-msg: #4e4e50;
             --alive-color: #28a745;
             --dead-color: #6c757d;
+            --sheriff-color: #ffc107;
         }
 
         body {
@@ -59,7 +60,7 @@
             margin-bottom: 8px;
             background: rgba(0,0,0,0.2);
             border-radius: 4px;
-            transition: transform 0.2s;
+            position: relative;
         }
 
         .player-item.self {
@@ -82,6 +83,14 @@
 
         .player-name { font-weight: bold; font-size: 0.9rem; }
         .player-id { font-size: 0.7rem; color: #888; }
+        
+        .sheriff-badge {
+            position: absolute;
+            right: 10px;
+            color: var(--sheriff-color);
+            font-size: 1.2rem;
+            text-shadow: 0 0 5px rgba(255,193,7,0.5);
+        }
 
         /* 主界面 */
         .main-content {
@@ -174,6 +183,7 @@
             background-color: var(--panel-bg);
             padding: 20px;
             display: flex;
+            flex-wrap: wrap;
             gap: 15px;
             border-top: 1px solid #333;
         }
@@ -187,22 +197,26 @@
             outline: none;
         }
 
-        input[type="text"] { flex-grow: 1; }
+        #msg-input { flex-grow: 1; min-width: 200px; }
 
         button {
             background-color: var(--accent-color);
             color: white;
             border: none;
-            padding: 10px 25px;
+            padding: 10px 20px;
             border-radius: 4px;
             cursor: pointer;
             font-weight: bold;
-            transition: background 0.2s;
+            transition: all 0.2s;
         }
 
-        button:hover { background-color: #950740; }
+        button:hover { background-color: #950740; transform: scale(1.05); }
+        button:active { transform: scale(0.95); }
+        
+        button.secondary { background-color: #4e4e50; }
+        button.warning { background-color: #ffc107; color: #000; }
 
-        .vote-section {
+        .action-group {
             display: flex;
             gap: 10px;
             padding-left: 15px;
@@ -275,9 +289,12 @@
             <input id="msg-input" type="text" placeholder="输入聊天内容..." onkeydown="if(event.keyCode==13) sendMessage()">
             <button onclick="sendMessage()">发送</button>
             
-            <div class="vote-section">
-                <input id="vote-input" type="number" placeholder="目标ID" style="width: 80px;">
-                <button onclick="sendVote()">投票/操作</button>
+            <div class="action-group">
+                <input id="target-input" type="number" placeholder="目标ID" style="width: 70px;">
+                <button onclick="sendAction()">执行</button>
+                <button class="secondary" onclick="sendSpecial(-2)">弃权/跳过</button>
+                <button id="btn-optin" class="warning" style="display:none;" onclick="sendSpecial(-99)">上警</button>
+                <button id="btn-detonate" class="accent" style="display:none;" onclick="sendDetonate()">自爆</button>
             </div>
         </div>
     </div>
@@ -285,6 +302,7 @@
     <script>
         let ws;
         let myId = -1;
+        let currentStage = "";
 
         function initConnection() {
             const idInput = document.getElementById('auth-id');
@@ -326,6 +344,7 @@
             if (data.type === 'sync') {
                 updateUI(data);
                 if (data.history) {
+                    document.getElementById('chat-log').innerHTML = ''; // 清空重新加载
                     data.history.forEach(appendChatMessage);
                 }
             } else if (data.type === 'chat') {
@@ -336,21 +355,31 @@
         }
 
         function updateUI(state) {
+            currentStage = state.current_stage;
             document.getElementById('ui-turn').textContent = state.turn;
             document.getElementById('ui-stage').textContent = translateStage(state.current_stage);
             document.getElementById('my-identity').textContent = `你的 ID: ${state.player_id}`;
+
+            // 显示/隐藏功能按钮
+            document.getElementById('btn-optin').style.display = (currentStage === "SheriffElectionStage") ? "block" : "none";
+            // 简单判断是否显示自爆按钮（实际应该根据身份，这里为了前端交互先显示，后端会拦截）
+            document.getElementById('btn-detonate').style.display = (currentStage === "DayStage" || currentStage === "SheriffElectionStage") ? "block" : "none";
 
             const listEl = document.getElementById('player-list');
             listEl.innerHTML = '';
             state.players.forEach(p => {
                 const item = document.createElement('div');
                 item.className = `player-item ${p.id === state.player_id ? 'self' : ''}`;
+                
+                let sheriffBadge = p.sheriff ? '<span class="sheriff-badge">★</span>' : '';
+                
                 item.innerHTML = `
                     <div class="status-dot ${p.alive ? 'status-alive' : 'status-dead'}"></div>
                     <div class="player-info">
                         <div class="player-name">玩家 ${p.id} ${p.id === state.player_id ? '(你)' : ''}</div>
                         <div class="player-id">${p.alive ? '存活' : '已死亡'}</div>
                     </div>
+                    ${sheriffBadge}
                 `;
                 listEl.appendChild(item);
             });
@@ -363,6 +392,8 @@
                 'WitchStage': '女巫用药环节',
                 'SeerStage': '预言家查验环节',
                 'HunterStage': '猎人状态确认',
+                'WolfKingStage': '狼王状态确认',
+                'SheriffElectionStage': '警长竞选环节',
                 'DayStage': '白天讨论/处决',
                 'Waiting': '等待开始'
             };
@@ -400,12 +431,22 @@
             input.value = '';
         }
 
-        function sendVote() {
-            const input = document.getElementById('vote-input');
+        function sendAction() {
+            const input = document.getElementById('target-input');
             const target = parseInt(input.value);
             if (isNaN(target)) return;
             ws.send(JSON.stringify({ type: 'vote', target: target }));
             input.value = '';
+        }
+
+        function sendSpecial(code) {
+            ws.send(JSON.stringify({ type: 'vote', target: code }));
+        }
+
+        function sendDetonate() {
+            if (confirm("确定要翻牌自爆吗？")) {
+                ws.send(JSON.stringify({ type: 'detonate' }));
+            }
         }
     </script>
 </body>
