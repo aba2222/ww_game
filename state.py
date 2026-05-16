@@ -62,24 +62,36 @@ class GameState:
         return count
 
     def check(self):
-        """检查胜负条件。返回 0 继续，1 好人胜，2 狼人胜"""
+        """检查胜负条件。返回 0 继续，1 好人胜，2 狼人胜 (采用屠边规则)"""
         wolves_alive = False
-        good_alive = False
+        gods_alive = False
+        villagers_alive = False
+
         for i in range(self.pl_count):
             tags = self.get_player_tags(i)
             if Tag.ALIVE not in tags:
                 continue
+            
             if Tag.WEREWOLF in tags:
                 wolves_alive = True
-            elif Tag.GOODPERSON in tags:
-                good_alive = True
+            elif Tag.GOD in tags:
+                gods_alive = True
+            elif Tag.VILLAGER in tags:
+                villagers_alive = True
         
-        if not good_alive:
-            logging.info("Werewolves won the game!")
-            return 2
+        # 1. 如果狼人全灭，好人获胜
         if not wolves_alive:
-            logging.info("Good people won the game!")
+            logging.info("Good people won the game! All wolves eliminated.")
             return 1
+            
+        # 2. 如果神职全灭 或 平民全灭，狼人获胜 (屠边规则)
+        if not gods_alive:
+            logging.info("Werewolves won the game! All gods eliminated.")
+            return 2
+        if not villagers_alive:
+            logging.info("Werewolves won the game! All villagers eliminated.")
+            return 2
+            
         return 0
     
     async def get_new_message(self, player_id : int, data : str):
