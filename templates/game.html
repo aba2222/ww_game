@@ -1,45 +1,496 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>狼人杀 - 虚夜村之影</title>
+    <style>
+        :root {
+            --bg-color: #0f0c29;
+            --bg-gradient: linear-gradient(to bottom, #0f0c29, #302b63, #24243e);
+            --panel-bg: rgba(20, 20, 30, 0.95);
+            --accent-color: #e94560;
+            --text-main: #e0e0e0;
+            --text-dim: #888;
+            --alive-color: #4ecca3;
+            --dead-color: #555;
+            --sheriff-color: #f9d423;
+            --wolf-color: #ff2e63;
+        }
+
+        body {
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            font-family: 'Inter', 'PingFang SC', sans-serif;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 侧边栏 */
+        .sidebar {
+            width: 300px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(10px);
+            border-right: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 5px 0 15px rgba(0,0,0,0.5);
+        }
+
+        .sidebar-header {
+            padding: 25px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            text-align: center;
+        }
+
+        .sidebar-header h2 {
+            margin: 0;
+            font-size: 1.4rem;
+            letter-spacing: 4px;
+            color: var(--accent-color);
+            text-shadow: 0 0 10px var(--accent-color);
+        }
+
+        .player-grid {
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            overflow-y: auto;
+        }
+
+        .player-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 15px 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid transparent;
+            position: relative;
+        }
+
+        .player-card:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateY(-5px);
+            border-color: var(--accent-color);
+        }
+
+        .player-card.dead {
+            filter: grayscale(1) brightness(0.5);
+            cursor: not-allowed;
+        }
+
+        .player-card.self {
+            background: rgba(78, 204, 163, 0.1);
+            border-color: var(--alive-color);
+        }
+
+        .avatar-circle {
+            width: 50px;
+            height: 50px;
+            background: #333;
+            border-radius: 50%;
+            margin: 0 auto 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+            border: 2px solid #555;
+        }
+
+        .alive .avatar-circle { border-color: var(--alive-color); }
+        .self .avatar-circle { box-shadow: 0 0 10px var(--alive-color); }
+
+        .player-name { font-size: 0.85rem; font-weight: 500; }
+
+        .badge-icon {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            font-size: 1.2rem;
+        }
+
+        /* 主区域 */
+        .main-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .top-bar {
+            height: 80px;
+            background: rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .status-group { display: flex; gap: 30px; }
+        .status-item { text-align: center; }
+        .status-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 5px; }
+        .status-value { font-size: 1.1rem; font-weight: bold; color: var(--accent-color); }
+
+        /* 倒计时器 */
+        .timer-box {
+            position: relative;
+            width: 50px;
+            height: 50px;
+        }
+        .timer-svg { transform: rotate(-90deg); }
+        .timer-circle {
+            fill: none;
+            stroke: var(--accent-color);
+            stroke-width: 4;
+            stroke-dasharray: 126;
+            transition: stroke-dashoffset 1s linear;
+        }
+        .timer-text {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+
+        /* 聊天 */
+        #chat-flow {
+            flex-grow: 1;
+            padding: 30px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .bubble {
+            max-width: 70%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            font-size: 0.95rem;
+            position: relative;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+
+        .bubble.sys {
+            align-self: center;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #aaa;
+            font-size: 0.85rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .bubble.user {
+            align-self: flex-start;
+            background: #2b2e4a;
+            border-bottom-left-radius: 2px;
+        }
+
+        .bubble.me {
+            align-self: flex-end;
+            background: #e94560;
+            color: white;
+            border-bottom-right-radius: 2px;
+        }
+
+        .bubble-name {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            margin-bottom: 5px;
+            display: block;
+        }
+
+        /* 交互菜单 */
+        #action-menu {
+            position: fixed;
+            background: var(--panel-bg);
+            border: 1px solid var(--accent-color);
+            border-radius: 8px;
+            padding: 10px;
+            display: none;
+            z-index: 1000;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+
+        .menu-btn {
+            display: block;
+            width: 100%;
+            padding: 8px 20px;
+            background: none;
+            border: none;
+            color: white;
+            text-align: left;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .menu-btn:hover { background: var(--accent-color); }
+
+        /* 底部 */
+        .bottom-shelf {
+            padding: 25px;
+            background: rgba(0,0,0,0.4);
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .input-wrap {
+            flex-grow: 1;
+            position: relative;
+        }
+
+        #msg-in {
+            width: 100%;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 12px 20px;
+            border-radius: 25px;
+            color: white;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        #msg-in:focus { border-color: var(--accent-color); }
+
+        .btn-main {
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            width: 45px; height: 45px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .special-actions { display: flex; gap: 10px; }
+        .pill-btn {
+            padding: 8px 18px;
+            border-radius: 20px;
+            border: 1px solid var(--accent-color);
+            background: none;
+            color: var(--accent-color);
+            font-size: 0.8rem;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .pill-btn:hover { background: var(--accent-color); color: white; }
+
+        /* 覆盖层 */
+        #login-shield {
+            position: fixed;
+            inset: 0;
+            background: #000;
+            z-index: 2000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-box {
+            background: #1a1a2e;
+            padding: 50px;
+            border-radius: 20px;
+            border: 1px solid #16213e;
+            width: 350px;
+            text-align: center;
+        }
+        .login-box input {
+            width: 100%;
+            margin-bottom: 20px;
+            padding: 12px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            color: white;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
 <body>
-<h2>狼人杀聊天</h2>
 
-<input id="msg" type="text" placeholder="输入聊天消息">
-<button onclick="sendMessage()">发送</button>
+    <div id="login-shield">
+        <div class="login-box">
+            <h1 style="color: var(--accent-color); margin-bottom: 30px;">虚夜村</h1>
+            <input id="l-id" type="number" placeholder="编号 (ID)">
+            <input id="l-tk" type="password" placeholder="通行证 (Token)">
+            <button class="pill-btn" style="width: 100%; padding: 15px;" onclick="connect()">进入村庄</button>
+        </div>
+    </div>
 
-<br><br>
-<input id="votePlayer" type="number" placeholder="选择投票玩家编号">
-<button onclick="votePlayer()">投票</button>
+    <div id="action-menu">
+        <!-- 动态按钮 -->
+    </div>
 
-<ul id="chat"></ul>
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <h2>SURVIVORS</h2>
+        </div>
+        <div id="p-grid" class="player-grid">
+            <!-- 玩家卡片 -->
+        </div>
+        <div style="padding: 20px; border-top: 1px solid rgba(255,255,255,0.05);">
+            <div id="my-role" style="font-size: 0.75rem; color: var(--text-dim);">身份加载中...</div>
+        </div>
+    </aside>
 
-<script>
-let playerId = prompt("Enter your ID");
-let ws = new WebSocket(`ws://localhost:8000/ws/${playerId}`);
+    <main class="main-content">
+        <header class="top-bar">
+            <div class="status-group">
+                <div class="status-item">
+                    <div class="status-label">Turn</div>
+                    <div id="val-turn" class="status-value">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Phase</div>
+                    <div id="val-stage" class="status-value">Waiting</div>
+                </div>
+            </div>
 
-ws.onmessage = function(event) {
-    let data = JSON.parse(event.data);
-    let li = document.createElement("li");
-    li.textContent = `${data.player}: ${data.msg}`;
-    document.getElementById("chat").appendChild(li);
-};
+            <div class="timer-box">
+                <svg class="timer-svg" width="50" height="50">
+                    <circle class="timer-circle" cx="25" cy="25" r="20"></circle>
+                </svg>
+                <div id="timer-num" class="timer-text">0</div>
+            </div>
+        </header>
 
-function sendMessage() {
-    let input = document.getElementById("msg");
-    if (input.value.trim() === "") return;
-    ws.send(JSON.stringify({"type":"chat","msg":input.value}));
-    input.value = "";
-}
+        <section id="chat-flow">
+            <!-- 气泡 -->
+        </section>
 
-function votePlayer() {
-    let input = document.getElementById("votePlayer");
-    let playerNum = parseInt(input.value);
-    if (isNaN(playerNum)) {
-        alert("请输入有效的玩家编号！");
-        return;
-    }
-    ws.send(JSON.stringify({"type":"vote","target":playerNum}));
-    input.value = "";
-}
-</script>
+        <footer class="bottom-shelf">
+            <div class="special-actions">
+                <button id="btn-det" class="pill-btn" style="display:none;" onclick="triggerDetonate()">自爆</button>
+                <button id="btn-up" class="pill-btn" style="display:none;" onclick="triggerJoin()">上警</button>
+                <button class="pill-btn" style="border-color: #555; color: #888;" onclick="sendVote(-2)">弃权</button>
+            </div>
+            <div class="input-wrap">
+                <input id="msg-in" type="text" placeholder="在这儿说话..." autocomplete="off">
+            </div>
+            <button class="btn-main" onclick="sendMsg()">></button>
+        </footer>
+    </main>
+
+    <script>
+        let ws, myId, timerInterval, timeLeft = 0, totalTime = 0;
+        const sounds = {
+            night_fall: new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3'),
+            day_break: new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2568-preview.mp3'),
+            gunshot: new Audio('https://assets.mixkit.co/active_storage/sfx/1653/1653-preview.mp3'),
+            death: new Audio('https://assets.mixkit.co/active_storage/sfx/2513/2513-preview.mp3'),
+            detonate: new Audio('https://assets.mixkit.co/active_storage/sfx/2512/2513-preview.mp3')
+        };
+
+        function connect() {
+            myId = parseInt(document.getElementById('l-id').value);
+            const tk = document.getElementById('l-tk').value;
+            ws = new WebSocket(`ws://${location.host}/ws/${myId}?token=${tk}`);
+            
+            ws.onopen = () => document.getElementById('login-shield').style.display = 'none';
+            ws.onmessage = e => handle(JSON.parse(e.data));
+            ws.onclose = e => { if(e.code === 1008) alert("鉴权失败"); location.reload(); };
+        }
+
+        function handle(data) {
+            if (data.type === 'sync') {
+                document.getElementById('val-turn').textContent = data.turn;
+                document.getElementById('val-stage').textContent = data.current_stage;
+                renderPlayers(data.players);
+                if(data.history) data.history.forEach(m => append(m));
+                if(data.player_id === myId && data.players[myId].tags) {
+                    document.getElementById('my-role').innerHTML = `我的身份标签: <span style="color:white">${data.players[myId].tags.join(', ')}</span>`;
+                }
+            } else if (data.type === 'chat') {
+                append(data);
+            } else if (data.type === 'stage_start') {
+                startTimer(data.duration);
+                document.getElementById('val-stage').textContent = data.stage;
+                updateControls(data.stage);
+            } else if (data.type === 'sound') {
+                if(sounds[data.effect]) sounds[data.effect].play().catch(()=>{});
+            }
+        }
+
+        function startTimer(sec) {
+            clearInterval(timerInterval);
+            timeLeft = sec; totalTime = sec;
+            const circle = document.querySelector('.timer-circle');
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                document.getElementById('timer-num').textContent = Math.max(0, timeLeft);
+                const offset = 126 - (timeLeft / totalTime) * 126;
+                circle.style.strokeDashoffset = offset;
+                if(timeLeft <= 0) clearInterval(timerInterval);
+            }, 1000);
+        }
+
+        function renderPlayers(list) {
+            const grid = document.getElementById('p-grid');
+            grid.innerHTML = '';
+            list.forEach(p => {
+                const card = document.createElement('div');
+                card.className = `player-card ${p.alive ? 'alive' : 'dead'} ${p.id === myId ? 'self' : ''}`;
+                card.onclick = (e) => showMenu(e, p);
+                card.innerHTML = `
+                    <div class="avatar-circle">${p.id}</div>
+                    <div class="player-name">玩家 ${p.id} ${p.id===myId?'(你)':''}</div>
+                    ${p.sheriff ? '<div class="badge-icon">⭐</div>' : ''}
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function showMenu(e, p) {
+            if(!p.alive || p.id === myId) return;
+            const menu = document.getElementById('action-menu');
+            menu.style.display = 'block';
+            menu.style.left = e.pageX + 'px';
+            menu.style.top = e.pageY + 'px';
+            menu.innerHTML = `<button class="menu-btn" onclick="sendVote(${p.id})">选中此目标</button>`;
+            
+            const hide = () => { menu.style.display = 'none'; document.removeEventListener('click', hide); };
+            setTimeout(() => document.addEventListener('click', hide), 10);
+        }
+
+        function updateControls(stage) {
+            document.getElementById('btn-up').style.display = (stage === "SheriffElectionStage") ? "block" : "none";
+            document.getElementById('btn-det').style.display = ["DayStage", "SheriffElectionStage"].includes(stage) ? "block" : "none";
+        }
+
+        function append(m) {
+            const flow = document.getElementById('chat-flow');
+            const isSys = m.player === 'System';
+            const wrap = document.createElement('div');
+            wrap.className = `bubble ${isSys ? 'sys' : (m.player == myId ? 'me' : 'user')}`;
+            if(!isSys) wrap.innerHTML = `<span class="bubble-name">玩家 ${m.player}</span>`;
+            wrap.innerHTML += m.msg;
+            flow.appendChild(wrap);
+            flow.scrollTop = flow.scrollHeight;
+        }
+
+        function sendMsg() {
+            const i = document.getElementById('msg-in');
+            if(!i.value.trim()) return;
+            ws.send(JSON.stringify({type:'chat', msg:i.value}));
+            i.value = '';
+        }
+
+        function sendVote(target) { ws.send(JSON.stringify({type:'vote', target:target})); }
+        function triggerJoin() { ws.send(JSON.stringify({type:'vote', target:-99})); }
+        function triggerDetonate() { if(confirm("自爆身份？")) ws.send(JSON.stringify({type:'detonate'})); }
+
+        document.getElementById('msg-in').onkeypress = e => { if(e.key==='Enter') sendMsg(); };
+    </script>
 </body>
 </html>
