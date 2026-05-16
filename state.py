@@ -13,6 +13,7 @@ class GameState:
         self.voted_player = 0
         self.pl_count = len(players)
         self.current_stage = None
+        self.last_night_killed = []
     
     def get_turn(self):
         return self.__turn
