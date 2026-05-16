@@ -1,45 +1,453 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>狼人杀 - 虚夜村之影</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1d;
+            --panel-bg: #25252b;
+            --accent-color: #c3073f;
+            --text-main: #e1e1e1;
+            --text-dim: #950740;
+            --system-msg: #4e4e50;
+            --alive-color: #28a745;
+            --dead-color: #6c757d;
+            --sheriff-color: #ffc107;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 侧边栏：玩家列表 */
+        .sidebar {
+            width: 260px;
+            background-color: var(--panel-bg);
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        .sidebar h2 {
+            font-size: 1.2rem;
+            margin-top: 0;
+            color: var(--accent-color);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+        }
+
+        .player-list {
+            list-style: none;
+            padding: 0;
+            flex-grow: 1;
+        }
+
+        .player-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .player-item.self {
+            border: 1px solid var(--accent-color);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 12px;
+        }
+
+        .status-alive { background-color: var(--alive-color); box-shadow: 0 0 5px var(--alive-color); }
+        .status-dead { background-color: var(--dead-color); }
+
+        .player-info {
+            flex-grow: 1;
+        }
+
+        .player-name { font-weight: bold; font-size: 0.9rem; }
+        .player-id { font-size: 0.7rem; color: #888; }
+        
+        .sheriff-badge {
+            position: absolute;
+            right: 10px;
+            color: var(--sheriff-color);
+            font-size: 1.2rem;
+            text-shadow: 0 0 5px rgba(255,193,7,0.5);
+        }
+
+        /* 主界面 */
+        .main-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* 顶部状态栏 */
+        .header {
+            background-color: var(--panel-bg);
+            padding: 15px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+
+        .stage-info {
+            display: flex;
+            gap: 20px;
+        }
+
+        .info-pill {
+            background: #111;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            border: 1px solid #444;
+        }
+
+        .info-pill span { color: var(--accent-color); font-weight: bold; }
+
+        /* 聊天区域 */
+        #chat-log {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: radial-gradient(circle at center, #222 0%, #1a1a1d 100%);
+        }
+
+        .msg-wrap {
+            max-width: 80%;
+            padding: 8px 15px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            line-height: 1.4;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .msg-system {
+            align-self: center;
+            background: rgba(78, 78, 80, 0.2);
+            color: #aaa;
+            font-size: 0.8rem;
+            border: 1px dashed #555;
+            font-style: italic;
+        }
+
+        .msg-player {
+            align-self: flex-start;
+            background: var(--panel-bg);
+            border-left: 3px solid var(--accent-color);
+        }
+
+        .msg-player.is-self {
+            align-self: flex-end;
+            border-left: none;
+            border-right: 3px solid var(--alive-color);
+            background: #2d2d35;
+        }
+
+        .sender {
+            font-size: 0.7rem;
+            color: var(--accent-color);
+            margin-bottom: 4px;
+            display: block;
+            font-weight: bold;
+        }
+
+        /* 底部控制栏 */
+        .controls {
+            background-color: var(--panel-bg);
+            padding: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            border-top: 1px solid #333;
+        }
+
+        input[type="text"], input[type="number"] {
+            background: #111;
+            border: 1px solid #444;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            outline: none;
+        }
+
+        #msg-input { flex-grow: 1; min-width: 200px; }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        button:hover { background-color: #950740; transform: scale(1.05); }
+        button:active { transform: scale(0.95); }
+        
+        button.secondary { background-color: #4e4e50; }
+        button.warning { background-color: #ffc107; color: #000; }
+
+        .action-group {
+            display: flex;
+            gap: 10px;
+            padding-left: 15px;
+            border-left: 1px solid #444;
+        }
+
+        /* 覆盖层：登录 */
+        #auth-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .auth-card {
+            background: var(--panel-bg);
+            padding: 40px;
+            border-radius: 8px;
+            width: 300px;
+            text-align: center;
+            border: 1px solid var(--accent-color);
+        }
+
+        .auth-card h3 { margin-top: 0; margin-bottom: 25px; }
+        .auth-card input { width: 100%; margin-bottom: 15px; box-sizing: border-box; }
+        .auth-card button { width: 100%; }
+
+    </style>
+</head>
 <body>
-<h2>狼人杀聊天</h2>
 
-<input id="msg" type="text" placeholder="输入聊天消息">
-<button onclick="sendMessage()">发送</button>
+    <div id="auth-overlay">
+        <div class="auth-card">
+            <h3>身份验证</h3>
+            <input id="auth-id" type="number" placeholder="玩家 ID (0, 1, 2...)">
+            <input id="auth-token" type="password" placeholder="访问令牌 (Token)">
+            <button onclick="initConnection()">进入村庄</button>
+        </div>
+    </div>
 
-<br><br>
-<input id="votePlayer" type="number" placeholder="选择投票玩家编号">
-<button onclick="votePlayer()">投票</button>
+    <div class="sidebar">
+        <h2>存活列表</h2>
+        <div id="player-list" class="player-list">
+            <!-- 动态填充 -->
+        </div>
+        <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid #444;">
+            <div id="my-identity" style="font-size: 0.8rem; color: #888;">
+                准备连接...
+            </div>
+        </div>
+    </div>
 
-<ul id="chat"></ul>
+    <div class="main-content">
+        <div class="header">
+            <div class="stage-info">
+                <div class="info-pill">回合: <span id="ui-turn">-</span></div>
+                <div class="info-pill">阶段: <span id="ui-stage">等待中</span></div>
+            </div>
+            <div id="ui-connection" style="font-size: 0.7rem; color: var(--dead-color);">未连接</div>
+        </div>
 
-<script>
-let playerId = prompt("Enter your ID");
-let ws = new WebSocket(`ws://localhost:8000/ws/${playerId}`);
+        <div id="chat-log">
+            <!-- 消息 -->
+        </div>
 
-ws.onmessage = function(event) {
-    let data = JSON.parse(event.data);
-    let li = document.createElement("li");
-    li.textContent = `${data.player}: ${data.msg}`;
-    document.getElementById("chat").appendChild(li);
-};
+        <div class="controls">
+            <input id="msg-input" type="text" placeholder="输入聊天内容..." onkeydown="if(event.keyCode==13) sendMessage()">
+            <button onclick="sendMessage()">发送</button>
+            
+            <div class="action-group">
+                <input id="target-input" type="number" placeholder="目标ID" style="width: 70px;">
+                <button onclick="sendAction()">执行</button>
+                <button class="secondary" onclick="sendSpecial(-2)">弃权/跳过</button>
+                <button id="btn-optin" class="warning" style="display:none;" onclick="sendSpecial(-99)">上警</button>
+                <button id="btn-detonate" class="accent" style="display:none;" onclick="sendDetonate()">自爆</button>
+            </div>
+        </div>
+    </div>
 
-function sendMessage() {
-    let input = document.getElementById("msg");
-    if (input.value.trim() === "") return;
-    ws.send(JSON.stringify({"type":"chat","msg":input.value}));
-    input.value = "";
-}
+    <script>
+        let ws;
+        let myId = -1;
+        let currentStage = "";
 
-function votePlayer() {
-    let input = document.getElementById("votePlayer");
-    let playerNum = parseInt(input.value);
-    if (isNaN(playerNum)) {
-        alert("请输入有效的玩家编号！");
-        return;
-    }
-    ws.send(JSON.stringify({"type":"vote","target":playerNum}));
-    input.value = "";
-}
-</script>
+        function initConnection() {
+            const idInput = document.getElementById('auth-id');
+            const tokenInput = document.getElementById('auth-token');
+            
+            if (!idInput.value || !tokenInput.value) {
+                alert("请输入 ID 和 Token");
+                return;
+            }
+
+            myId = parseInt(idInput.value);
+            const token = tokenInput.value;
+
+            ws = new WebSocket(`ws://${window.location.host}/ws/${myId}?token=${token}`);
+
+            ws.onopen = () => {
+                document.getElementById('auth-overlay').style.display = 'none';
+                document.getElementById('ui-connection').textContent = '已连接';
+                document.getElementById('ui-connection').style.color = 'var(--alive-color)';
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+
+            ws.onclose = (event) => {
+                if (event.code === 1008) {
+                    alert("身份验证失败，请检查 ID 或 Token");
+                    location.reload();
+                } else {
+                    document.getElementById('ui-connection').textContent = '连接已断开';
+                    document.getElementById('ui-connection').style.color = 'var(--dead-color)';
+                }
+            };
+        }
+
+        function handleMessage(data) {
+            if (data.type === 'sync') {
+                updateUI(data);
+                if (data.history) {
+                    document.getElementById('chat-log').innerHTML = ''; // 清空重新加载
+                    data.history.forEach(appendChatMessage);
+                }
+            } else if (data.type === 'chat') {
+                appendChatMessage(data);
+            } else if (data.type === 'system') {
+                appendSystemMessage(data.msg);
+            }
+        }
+
+        function updateUI(state) {
+            currentStage = state.current_stage;
+            document.getElementById('ui-turn').textContent = state.turn;
+            document.getElementById('ui-stage').textContent = translateStage(state.current_stage);
+            document.getElementById('my-identity').textContent = `你的 ID: ${state.player_id}`;
+
+            // 显示/隐藏功能按钮
+            document.getElementById('btn-optin').style.display = (currentStage === "SheriffElectionStage") ? "block" : "none";
+            // 简单判断是否显示自爆按钮（实际应该根据身份，这里为了前端交互先显示，后端会拦截）
+            document.getElementById('btn-detonate').style.display = (currentStage === "DayStage" || currentStage === "SheriffElectionStage") ? "block" : "none";
+
+            const listEl = document.getElementById('player-list');
+            listEl.innerHTML = '';
+            state.players.forEach(p => {
+                const item = document.createElement('div');
+                item.className = `player-item ${p.id === state.player_id ? 'self' : ''}`;
+                
+                let sheriffBadge = p.sheriff ? '<span class="sheriff-badge">★</span>' : '';
+                
+                item.innerHTML = `
+                    <div class="status-dot ${p.alive ? 'status-alive' : 'status-dead'}"></div>
+                    <div class="player-info">
+                        <div class="player-name">玩家 ${p.id} ${p.id === state.player_id ? '(你)' : ''}</div>
+                        <div class="player-id">${p.alive ? '存活' : '已死亡'}</div>
+                    </div>
+                    ${sheriffBadge}
+                `;
+                listEl.appendChild(item);
+            });
+        }
+
+        function translateStage(stage) {
+            const map = {
+                'GuardStage': '守卫守护环节',
+                'WereWolfStage': '狼人杀人环节',
+                'WitchStage': '女巫用药环节',
+                'SeerStage': '预言家查验环节',
+                'HunterStage': '猎人状态确认',
+                'WolfKingStage': '狼王状态确认',
+                'SheriffElectionStage': '警长竞选环节',
+                'DayStage': '白天讨论/处决',
+                'Waiting': '等待开始'
+            };
+            return map[stage] || stage;
+        }
+
+        function appendChatMessage(data) {
+            const chatLog = document.getElementById('chat-log');
+            const isSystem = data.player === 'System';
+            
+            const wrap = document.createElement('div');
+            wrap.className = `msg-wrap ${isSystem ? 'msg-system' : 'msg-player'} ${data.player == myId ? 'is-self' : ''}`;
+            
+            if (isSystem) {
+                wrap.textContent = data.msg;
+            } else {
+                wrap.innerHTML = `
+                    <span class="sender">玩家 ${data.player}</span>
+                    <div class="text">${data.msg}</div>
+                `;
+            }
+            
+            chatLog.appendChild(wrap);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        }
+
+        function appendSystemMessage(msg) {
+            appendChatMessage({player: 'System', msg: msg});
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('msg-input');
+            if (!input.value.trim()) return;
+            ws.send(JSON.stringify({ type: 'chat', msg: input.value }));
+            input.value = '';
+        }
+
+        function sendAction() {
+            const input = document.getElementById('target-input');
+            const target = parseInt(input.value);
+            if (isNaN(target)) return;
+            ws.send(JSON.stringify({ type: 'vote', target: target }));
+            input.value = '';
+        }
+
+        function sendSpecial(code) {
+            ws.send(JSON.stringify({ type: 'vote', target: code }));
+        }
+
+        function sendDetonate() {
+            if (confirm("确定要翻牌自爆吗？")) {
+                ws.send(JSON.stringify({ type: 'detonate' }));
+            }
+        }
+    </script>
 </body>
 </html>

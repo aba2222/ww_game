@@ -12,11 +12,16 @@ from state import GameState
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
-players = [Player(0, "Alice", [Tag.WEREWOLF, Tag.ALIVE]),
-           Player(1, "Bob", [Tag.WEREWOLF, Tag.ALIVE]),
-           Player(2, "Test", [Tag.SEER, Tag.GOODPERSON, Tag.ALIVE])]
+players = [Player(0, "Wolf", [Tag.WEREWOLF, Tag.ALIVE], "token_w1"),
+           Player(1, "WolfKing", [Tag.WOLFKING, Tag.ALIVE], "token_wk"),
+           Player(2, "Witch", [Tag.WITCH, Tag.GOD, Tag.GOODPERSON, Tag.ALIVE], "token_witch"),
+           Player(3, "Seer", [Tag.SEER, Tag.GOD, Tag.GOODPERSON, Tag.ALIVE], "token_seer"),
+           Player(4, "Hunter", [Tag.HUNTER, Tag.GOD, Tag.GOODPERSON, Tag.ALIVE], "token_hunter"),
+           Player(5, "Guard", [Tag.GUARD, Tag.GOD, Tag.GOODPERSON, Tag.ALIVE], "token_guard"),
+           Player(6, "Villager", [Tag.VILLAGER, Tag.GOODPERSON, Tag.ALIVE], "token_villager")]
 
 state = GameState(players)
+manager.set_player_count(len(players))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,8 +38,20 @@ async def game():
     return "TODO"
 
 @app.websocket("/ws/{player_id}")
-async def websocket_endpoint(websocket: WebSocket, player_id: int):
+async def websocket_endpoint(websocket: WebSocket, player_id: int, token: str = None):
+    # 身份验证逻辑
+    if player_id < 0 or player_id >= len(players) or players[player_id].token != token:
+        await websocket.accept() # 必须先 accept 才能关闭并发送状态码，或者直接拒绝握手
+        await websocket.close(code=1008) # 1008: Policy Violation
+        logging.warning(f"Authentication failed for player_id: {player_id}, token: {token}")
+        return
+
     await manager.connect(player_id, websocket)
+    
+    # 连接成功后立即发送状态同步快照
+    snapshot = state.get_snapshot(player_id)
+    await manager.send_personal_message(json.dumps(snapshot), player_id)
+
     try:
         while True:
             await state.get_new_message(player_id, await websocket.receive_text())
