@@ -12,6 +12,7 @@ class GameState:
         self.vote = [-1] * len(players)
         self.voted_player = 0
         self.pl_count = len(players)
+        self.current_stage = None
     
     def get_turn(self):
         return self.__turn
@@ -35,6 +36,7 @@ class GameState:
         return count
 
     def check(self):
+        """检查胜负条件。返回 0 继续，1 好人胜，2 狼人胜"""
         wolves_alive = False
         good_alive = False
         for i in range(self.pl_count):
@@ -48,19 +50,41 @@ class GameState:
         
         if not good_alive:
             logging.info("Werewolves won the game!")
-            return True
+            return 2
         if not wolves_alive:
             logging.info("Good people won the game!")
-            return True
-        return False
+            return 1
+        return 0
     
     async def get_new_message(self, player_id : int, data : str):
-        msg = json.loads(data)
+        try:
+            msg = json.loads(data)
+        except json.JSONDecodeError:
+            logging.warning(f"Invalid JSON received from player {player_id}")
+            return
+
+        player_tags = self.get_player_tags(player_id)
+        if Tag.ALIVE not in player_tags:
+            logging.info(f"Dead player {player_id} attempted to send a message")
+            return
+
         if msg["type"] == "chat":
             logging.info(f"{player_id}: {msg['msg']}")
             msg["player"] = player_id
             await manager.broadcast(json.dumps(msg))
         elif msg["type"] == "vote":
+            if self.current_stage is None:
+                logging.info(f"Player {player_id} attempted to vote when no stage is active")
+                return
+            
+            allowed_tags = self.current_stage.who_can_talk()
+            if not all(tag in player_tags for tag in allowed_tags):
+                logging.info(f"Player {player_id} attempted to vote without proper tags for {self.current_stage.__name__}")
+                return
+
+            if self.vote[player_id] != -1:
+                logging.info(f"{player_id} attempted to vote again")
+                return
             logging.info(f"{player_id} voted {msg['target']}")
             self.vote[player_id] = msg["target"]
             self.voted_player += 1
