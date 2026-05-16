@@ -53,18 +53,23 @@ class WereWolfStage(StageBase):
     
     async def result(state):
         state.current_stage = WereWolfStage
-        await state.send_message("Whom do you want to kill?", WereWolfStage.who_can_talk())
+        state.reset_night_actions() # 新回合开始，重置夜晚行动记录
+        await state.send_message("请选择今晚要袭击的目标号码：", WereWolfStage.who_can_talk())
         try:
             voter_number = state.count_players_with_tags(WereWolfStage.who_can_talk())
             vote_result = await asyncio.wait_for(WereWolfStage.wait_vote(state, voter_number), timeout=180)
+            
+            if isinstance(vote_result, list): # 处理狼人内部平票，随机选一个
+                import random
+                vote_result = random.choice(vote_result)
+
             if vote_result != -1:
-                await state.send_message(f"You have killed {vote_result}", WereWolfStage.who_can_talk())
-                state.kill(vote_result)
-                state.last_night_killed.append(vote_result)
+                await state.send_message(f"狼人选择了袭击 {vote_result} 号玩家", WereWolfStage.who_can_talk())
+                state.night_actions["wolf_kill"] = vote_result
             else:
-                await state.send_message("You didn't kill anyone (tie or no votes)", WereWolfStage.who_can_talk())
+                await state.send_message("狼人今晚空刀了", WereWolfStage.who_can_talk())
         except TimeoutError:
-            await state.send_message("You didn't kill anyone (timeout)", WereWolfStage.who_can_talk())
+            await state.send_message("袭击超时，狼人今晚空刀了", WereWolfStage.who_can_talk())
         return 0
 
 class WitchStage(StageBase):
@@ -86,9 +91,8 @@ class WitchStage(StageBase):
         # 1. 救人环节
         # 规则：解药已用则法官不再告知刀口。且女巫不能自救。
         if not state.witch_save_used:
-            killed = state.last_night_killed
-            if killed:
-                target = killed[0]
+            target = state.night_actions["wolf_kill"]
+            if target != -1:
                 if target == witch_id:
                     await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "今晚你中刀了，但你不能自救。"}), witch_id)
                     await asyncio.sleep(5) # 给一点思考时间
@@ -98,8 +102,7 @@ class WitchStage(StageBase):
                         # 仅等待该女巫的决定
                         vote_result = await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=30)
                         if vote_result == target:
-                            state.revive(target)
-                            state.last_night_killed.remove(target)
+                            state.night_actions["witch_save"] = target
                             state.witch_save_used = True
                             potion_used_tonight = True
                             await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": f"你救活了 {target} 号玩家"}), witch_id)
@@ -126,9 +129,8 @@ class WitchStage(StageBase):
                 await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": "要使用毒药吗？(发送玩家 ID 毒杀，发送 -2 跳过)"}), witch_id)
                 try:
                     vote_result = await asyncio.wait_for(WitchStage.wait_vote(state, voter_number), timeout=30)
-                    if vote_result >= 0 and vote_result < state.pl_count:
-                        state.kill(vote_result)
-                        state.last_night_killed.append(vote_result)
+                    if isinstance(vote_result, int) and vote_result >= 0 and vote_result < state.pl_count:
+                        state.night_actions["witch_kill"] = vote_result
                         state.witch_kill_used = True
                         await manager.send_personal_message(json.dumps({"type": "chat", "player": "System", "msg": f"你毒杀了 {vote_result} 号玩家"}), witch_id)
                     else:
@@ -150,17 +152,20 @@ class SeerStage(StageBase):
 
     async def result(state):
         state.current_stage = SeerStage
-        await state.send_message("Whom do you want to predict?", SeerStage.who_can_talk())
+        await state.send_message("请选择今晚要查验的目标号码：", SeerStage.who_can_talk())
         try:
             voter_number = state.count_players_with_tags(SeerStage.who_can_talk())
             vote_result = await asyncio.wait_for(SeerStage.wait_vote(state, voter_number), timeout=180)
-            if vote_result != -1:
-                if Tag.GOODPERSON in state.get_player_tags(vote_result):
-                    await state.send_message(f"Player {vote_result} is a good person", SeerStage.who_can_talk())
+            if isinstance(vote_result, int) and vote_result != -1:
+                if Tag.WEREWOLF in state.get_player_tags(vote_result):
+                    await state.send_message(f"{vote_result} 号玩家的身份是：狼人", SeerStage.who_can_talk())
                 else:
-                    await state.send_message(f"Player {vote_result} is a werewolf", SeerStage.who_can_talk())
+                    await state.send_message(f"{vote_result} 号玩家的身份是：好人", SeerStage.who_can_talk())
         except TimeoutError:
-            await state.send_message("You didn't predict anyone", SeerStage.who_can_talk())
+            await state.send_message("查验超时，你今晚没有获得任何信息", SeerStage.who_can_talk())
+        
+        # 夜晚行动结束，统一结算
+        state.settle_night()
         return 0
 
 class DayStage(StageBase):

@@ -17,6 +17,47 @@ class GameState:
         self.message_history = []
         self.witch_save_used = False
         self.witch_kill_used = False
+        self.night_actions = {
+            "wolf_kill": -1,
+            "witch_save": -1,
+            "witch_kill": -1,
+            # 未来可以扩展 "guard_protect": -1
+        }
+
+    def reset_night_actions(self):
+        """重置夜晚行动记录"""
+        self.night_actions = {
+            "wolf_kill": -1,
+            "witch_save": -1,
+            "witch_kill": -1
+        }
+
+    def settle_night(self):
+        """结算夜晚的所有行动，计算最终死亡名单"""
+        killed_this_night = set()
+        
+        wolf_target = self.night_actions["wolf_kill"]
+        witch_save = self.night_actions["witch_save"]
+        witch_kill = self.night_actions["witch_kill"]
+        
+        # 1. 处理狼刀和解药
+        if wolf_target != -1:
+            if wolf_target == witch_save:
+                # 被救了，不计入死亡 (未来若有守卫，在此处处理同守同救/奶穿逻辑)
+                logging.info(f"Player {wolf_target} was saved by Witch.")
+            else:
+                killed_this_night.add(wolf_target)
+        
+        # 2. 处理毒药
+        if witch_kill != -1:
+            killed_this_night.add(witch_kill)
+            
+        # 3. 执行死亡
+        self.last_night_killed = list(killed_this_night)
+        for pid in self.last_night_killed:
+            self.kill(pid)
+            
+        return self.last_night_killed
 
     def get_snapshot(self, player_id):
         """获取当前游戏快照用于断线重连同步"""
