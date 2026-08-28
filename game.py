@@ -4,7 +4,14 @@ import stage
 
 order = [
     stage.WereWolfStage,
+<<<<<<< Updated upstream
     stage.SeerStage,
+=======
+#    stage.WitchStage,
+    stage.SeerStage,
+#    stage.HunterStage,
+    stage.SheriffElectionStage,
+>>>>>>> Stashed changes
     stage.DayStage,
 ]
 
